@@ -145,6 +145,8 @@ describe("stripMarkdown のインライン コード", () => {
     expect(stripMarkdown("これは `x` です。")).toBe("これは X です。");
     expect(stripMarkdown("これは ``a`b`` です。")).toBe("これは X です。");
     expect(stripMarkdown("`a` と ``b``。")).toBe("X と X。");
+    expect(stripMarkdown("これは ``a```b`` です。")).toBe("これは X です。"); // 中身に開きより長い列があっても閉じは同じ長さの列
+    expect(stripMarkdown("これは ` `` ` です。")).toBe("これは X です。");
     expect(stripMarkdown("閉じない `code です。")).toBe("閉じない `code です。");
   });
 });

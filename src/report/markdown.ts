@@ -53,7 +53,7 @@ function table(header: string[], rows: string[][]): string {
 
 function reportKeys(report: Report): string[] {
   const keys: string[] = [...HEADLINE_METRICS];
-  for (const k of ["judgeOverall", "judgeReadability", "judgeClarity", "judgeNaturalness", "judgeConcision"]) {
+  for (const k of ["judgeOverall", "judgeReadability", "judgeClarity", "judgeNaturalness", "judgeConcision", "judgeStructure"]) {
     if (report.metricKeys.includes(k) && report.cells.some((c) => c.metrics[k])) keys.push(k);
   }
   return keys;

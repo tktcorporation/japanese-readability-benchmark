@@ -262,6 +262,11 @@ describe("人手評価", () => {
     // 本文が同じでも、作り直しが失敗したサンプル（中間結果が残る）のペアは使わない
     expect(isCurrentPair(p, new Map(samples.map((s) => [s.id, s.id === "m1-fix" ? { ...s, error: "失敗" } : s])), sources)).toBe(false);
   });
+  it("rubric 判定があれば、構成（judgeStructure）の列も Markdown に出す", () => {
+    const r = aggregate({ runId: "r", samples, scores, judgments });
+    expect(r.metricKeys).toContain("judgeStructure");
+    expect(renderMarkdown(r)).toContain("LLM構成");
+  });
   it("--baseline で別の介入を基準にすると、見出しと列名にその id を出す", () => {
     const r = aggregate({ runId: "r", samples, scores, judgments, baselineId: "textlint-fix" });
     const md = renderMarkdown(r);

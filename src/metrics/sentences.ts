@@ -69,7 +69,8 @@ export function removeCodeBlocks(text: string): string {
 export function stripMarkdown(text: string): string {
   return removeCodeBlocks(text)
     // インライン コード。区切りは同じ長さのバッククォート列（`` `foo` `` のような多重区切りも 1 つの X にする）
-    .replace(/(`+)(?!`)((?:(?!\1)[^\n])+?)\1(?!`)/g, "X")
+    // 閉じは「開きと同じ長さで、前後にバッククォートが続かない」列。中身にそれより長い列があっても 1 つの X にする
+    .replace(/(?<!`)(`+)(?!`)([^\n]*?)(?<!`)\1(?!`)/g, "X")
     .replace(/^\s{0,3}#{1,6}\s+/gm, "")
     // Setext 見出しの下線（===== / -----）は本文ではないので落とす
     .replace(/^\s{0,3}(=+|-+)\s*$/gm, "")
