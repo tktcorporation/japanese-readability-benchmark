@@ -1,9 +1,12 @@
 id: textlint-fix
 name: textlint --fix で機械的に後処理
 description: >-
-  素の出力に textlint（preset-ja-technical-writing）の自動修正だけをかける。
+  baseline の出力（同じ課題・モデル・サンプル番号）に textlint（preset-ja-technical-writing）の
+  自動修正だけをかける。生成し直さないので、差分はすべて textlint によるもの。
   LLM を使わない決定的な介入。修正できるルールが限られるため効果は小さめだが、
   「lint を通すだけでどこまで改善するか」の基準になる。
+  先に baseline を同じ run で実行しておくこと（bench run は自動で先に回す）。
 steps:
   - type: generate
+    reuse: baseline
   - type: textlint-fix

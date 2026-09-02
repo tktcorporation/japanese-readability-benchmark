@@ -102,6 +102,7 @@ steps:
 ```
 
 - **ルールや CLAUDE.md の効果** を測る → `generate` の `system` にその内容を置く
+- **後処理だけの効果** を測る → `generate` に `reuse: baseline` を付けると、生成し直さずに baseline の出力へ後処理をかける（生成のばらつきが混ざらない）
 - **textlint のルールセット** を比べる → `textlint-fix` の `config` を変えた介入を複数作る
 - **スキルやプラグイン** のように多段で処理するもの → `rewrite` を複数並べる（`passes` で回数指定も可）
 

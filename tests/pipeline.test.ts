@@ -1,13 +1,27 @@
 import { describe, expect, it } from "vitest";
 import { loadCorpus, loadInterventions, loadModels, loadTasks, parseCorpusDoc } from "../src/config.ts";
 import { surfaceMetrics } from "../src/metrics/surface.ts";
-import { corpusSource, needsModelForCorpus, renderTemplate, runCell, sampleId, taskSource } from "../src/pipeline/run.ts";
+import { corpusSource, needsModelForCorpus, renderTemplate, reusesIntervention, runCell, sampleId, taskSource } from "../src/pipeline/run.ts";
+import type { Sample } from "../src/types.ts";
 
 const { models } = loadModels();
 const interventions = loadInterventions();
 const byId = (id: string) => interventions.find((i) => i.id === id)!;
 const mockVerbose = models.find((m) => m.id === "mock-verbose")!;
 const task = taskSource(loadTasks()[0]!);
+
+/** run と同じく、生成済みサンプルを reuse の参照先にする */
+const store = new Map<string, Sample>();
+const opts = {
+  runId: "t",
+  allModels: models,
+  lookup: (sourceId: string, modelId: string, interventionId: string, index: number) => store.get(sampleId(sourceId, modelId, interventionId, index)),
+};
+async function run(source: Parameters<typeof runCell>[0], model: Parameters<typeof runCell>[1], interventionId: string) {
+  const s = await runCell(source, model, byId(interventionId), 0, opts);
+  if (!s.error) store.set(s.id, s);
+  return s;
+}
 
 describe("config", () => {
   it("リポジトリ内の定義がすべて読み込める", () => {
@@ -32,23 +46,37 @@ describe("config", () => {
 
 describe("runCell (mock)", () => {
   it("baseline はフィクスチャをそのまま返す", async () => {
-    const s = await runCell(task, mockVerbose, byId("baseline"), 0, { runId: "t", allModels: models });
+    const s = await run(task, mockVerbose, "baseline");
     expect(s.error).toBeUndefined();
     expect(s.id).toBe(sampleId(task.id, "mock-verbose", "baseline", 0));
     expect(s.text.length).toBeGreaterThan(100);
     expect(s.steps.map((x) => x.type)).toEqual(["generate"]);
     expect(s.inputText).toBeUndefined();
   });
+  it("後処理だけの介入は baseline の出力を再利用する（生成し直さない）", async () => {
+    const base = await run(task, mockVerbose, "baseline");
+    const s = await run(task, mockVerbose, "textlint-fix");
+    expect(s.error).toBeUndefined();
+    expect(s.steps[0]).toMatchObject({ type: "generate", reusedFrom: base.id });
+    expect(reusesIntervention(byId("textlint-fix"))).toBe("baseline");
+    expect(reusesIntervention(byId("baseline"))).toBeUndefined();
+    expect(reusesIntervention(byId("style-prompt"))).toBeUndefined();
+  });
+  it("再利用先の baseline がなければエラーとして記録する", async () => {
+    const s = await runCell(task, mockVerbose, byId("textlint-fix"), 7, opts);
+    expect(s.error).toContain("baseline");
+  });
   it("rewrite-pass は文を短くし、介入前の文章を inputText に残す", async () => {
-    const base = await runCell(task, mockVerbose, byId("baseline"), 0, { runId: "t", allModels: models });
-    const s = await runCell(task, mockVerbose, byId("rewrite-pass"), 0, { runId: "t", allModels: models });
+    const base = await run(task, mockVerbose, "baseline");
+    const s = await run(task, mockVerbose, "rewrite-pass");
     expect(s.error).toBeUndefined();
     expect(s.inputText).toBe(base.text);
     const [b, a] = await Promise.all([surfaceMetrics(base.text), surfaceMetrics(s.text)]);
     expect(a.meanSentenceLength).toBeLessThan(b.meanSentenceLength);
   });
   it("textlint-fix は applied/remaining を記録する", async () => {
-    const s = await runCell(task, mockVerbose, byId("textlint-fix"), 0, { runId: "t", allModels: models });
+    await run(task, mockVerbose, "baseline");
+    const s = await run(task, mockVerbose, "textlint-fix");
     expect(s.error).toBeUndefined();
     const fix = s.steps.find((x) => x.type === "textlint-fix")!;
     expect(fix.applied).toBeGreaterThanOrEqual(0);
@@ -57,13 +85,13 @@ describe("runCell (mock)", () => {
   it("コーパス起点では generate を飛ばし、原文から始める", async () => {
     const doc = loadCorpus()[0]!;
     const corpus = corpusSource(doc);
-    const base = await runCell(corpus, undefined, byId("baseline"), 0, { runId: "t", allModels: models });
+    const base = await run(corpus, undefined, "baseline");
     expect(base.error).toBeUndefined();
     expect(base.text).toBe(doc.text);
     expect(base.modelId).toBe("none");
     expect(base.steps[0]).toMatchObject({ type: "generate", skipped: true });
 
-    const rewritten = await runCell(corpus, mockVerbose, byId("rewrite-pass"), 0, { runId: "t", allModels: models });
+    const rewritten = await run(corpus, mockVerbose, "rewrite-pass");
     expect(rewritten.error).toBeUndefined();
     expect(rewritten.text).not.toBe(doc.text);
     expect(rewritten.inputText).toBe(doc.text);
@@ -74,7 +102,7 @@ describe("runCell (mock)", () => {
     expect(needsModelForCorpus(byId("rewrite-pass"))).toBe(true);
   });
   it("モデルなしでタスクを実行するとエラーとして記録する", async () => {
-    const s = await runCell(task, undefined, byId("baseline"), 0, { runId: "t", allModels: models });
+    const s = await runCell(task, undefined, byId("baseline"), 0, opts);
     expect(s.error).toContain("モデル");
   });
 });

@@ -35,12 +35,17 @@ const modelsFileSchema = z.object({
 });
 
 const stepSchema = z.discriminatedUnion("type", [
-  z.object({
-    type: z.literal("generate"),
-    system: z.string().optional(),
-    promptPrefix: z.string().optional(),
-    promptSuffix: z.string().optional(),
-  }),
+  z
+    .object({
+      type: z.literal("generate"),
+      reuse: z.string().optional(),
+      system: z.string().optional(),
+      promptPrefix: z.string().optional(),
+      promptSuffix: z.string().optional(),
+    })
+    .refine((s) => !s.reuse || (!s.system && !s.promptPrefix && !s.promptSuffix), {
+      message: "generate の reuse は system / promptPrefix / promptSuffix と併用できません",
+    }),
   z.object({ type: z.literal("textlint-fix"), config: z.string().optional() }),
   z.object({
     type: z.literal("rewrite"),

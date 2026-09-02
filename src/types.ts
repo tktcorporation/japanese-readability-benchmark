@@ -70,6 +70,12 @@ export interface ModelDef {
 export type StepDef =
   | {
       type: "generate";
+      /**
+       * 生成せず、同じ source × model × index の別の介入（通常は baseline）の出力を再利用する。
+       * 後処理だけの介入（textlint-fix、rewrite-pass）で使うと、生成のばらつきが介入効果に混ざらない。
+       * system / promptPrefix / promptSuffix とは併用できない。
+       */
+      reuse?: string;
       /** システムプロンプトのファイル（介入ディレクトリからの相対パス） */
       system?: string;
       /** タスクプロンプトの前後に付け足す文字列 */
@@ -128,6 +134,8 @@ export interface StepTrace {
   ms: number;
   modelId?: string;
   servedBy?: string;
+  /** generate(reuse): 再利用したサンプルの id */
+  reusedFrom?: string;
   /** textlint-fix: 適用された修正数 / 残った違反数 */
   applied?: number;
   remaining?: number;

@@ -61,7 +61,9 @@ export function createHumanEvalServer(opts: ServeOptions) {
         const rater = url.searchParams.get("rater") ?? "";
         const answered = new Set(readJsonl<HumanVote>(opts.votesFile).filter((v) => v.raterId === rater).map((v) => v.pairId));
         const remaining = pairs.filter((p) => !answered.has(p.id));
-        const limited = opts.perRater ? remaining.slice(0, opts.perRater) : remaining;
+        // 上限は累積（回答済みを差し引く）。リロードしても上限を超えて出さない
+        const allowance = opts.perRater ? Math.max(0, opts.perRater - answered.size) : remaining.length;
+        const limited = remaining.slice(0, allowance);
         json(res, 200, { total: pairs.length, remaining: remaining.length, pairs: limited });
         return;
       }

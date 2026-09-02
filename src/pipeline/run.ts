@@ -22,6 +22,14 @@ export interface RunOptions {
   /** 全モデル定義（rewrite ステップの model 解決用） */
   allModels: ModelDef[];
   textlintConfig?: string;
+  /** generate(reuse) が参照する、同じ run の既存サンプル */
+  lookup?: (sourceId: string, modelId: string, interventionId: string, index: number) => Sample | undefined;
+}
+
+/** この介入が他の介入の出力を再利用するか（実行順の決定に使う） */
+export function reusesIntervention(intervention: InterventionDef): string | undefined {
+  for (const s of intervention.steps) if (s.type === "generate" && s.reuse) return s.reuse;
+  return undefined;
 }
 
 export function sampleId(sourceId: string, modelId: string, interventionId: string, index: number): string {
@@ -81,6 +89,7 @@ export async function runCell(
         text,
         source,
         model,
+        index,
         audience,
         intervention,
         opts,
@@ -103,6 +112,7 @@ interface StepContext {
   text: string | undefined;
   source: Source;
   model: ModelDef | undefined;
+  index: number;
   audience: string;
   intervention: InterventionDef;
   opts: RunOptions;
@@ -113,6 +123,14 @@ async function executeStep(step: StepDef, ctx: StepContext): Promise<{ trace: St
     case "generate": {
       if (ctx.source.type === "corpus") return { trace: { type: "generate", skipped: true, ms: 0 } };
       if (!ctx.model) throw new Error("generate ステップにはモデルが必要です");
+      if (step.reuse) {
+        // 同じセルの別介入（通常は baseline）の出力をそのまま使う。生成のばらつきを介入効果に混ぜない
+        const prior = ctx.opts.lookup?.(ctx.source.id, ctx.model.id, step.reuse, ctx.index);
+        if (!prior || prior.error || !prior.text) {
+          throw new Error(`再利用する介入 "${step.reuse}" のサンプルがありません。先に ${step.reuse} を同じ run で実行してください`);
+        }
+        return { trace: { type: "generate", ms: 0, modelId: ctx.model.id, reusedFrom: prior.id }, text: prior.text };
+      }
       const provider = createProvider(ctx.model);
       const system = step.system ? readText(resolve(ctx.intervention.dir, step.system)) : undefined;
       const prompt = [step.promptPrefix, ctx.source.prompt, step.promptSuffix].filter(Boolean).join("\n\n");

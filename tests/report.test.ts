@@ -86,6 +86,16 @@ describe("aggregate", () => {
     expect(renderMarkdown(z)).toContain("他に j の判定あり");
     expect(() => aggregate({ runId: "r", samples, scores, judgments, judgeModel: "nope" })).toThrow();
   });
+  it("コーパス run では baseline を持つモデルがないのでモデル比較を出さない", () => {
+    const corpusSamples = [
+      { ...sample("orig", "none", "baseline", "c1"), sourceType: "corpus" as const },
+      { ...sample("rw", "m1", "rewrite-pass", "c1"), sourceType: "corpus" as const },
+    ];
+    const r = aggregate({ runId: "r", samples: corpusSamples, scores: [], judgments: [] });
+    expect(r.models).toEqual([]);
+    expect(r.cells.map((c) => `${c.modelId}|${c.interventionId}`)).toEqual(["m1|rewrite-pass", "none|baseline"]);
+    expect(renderMarkdown(r)).not.toContain("モデル比較");
+  });
   it("ルール別の違反数を介入ごとに合計する", () => {
     expect(report.ruleCounts.baseline?.["x/a"]).toBe(2);
     expect(report.ruleCounts["textlint-fix"]?.["x/a"]).toBe(1);

@@ -8,7 +8,7 @@ import { createHumanEvalServer } from "./human/server.ts";
 import { buildPairs, judgePairwise, judgeRubric, type SourceInfo } from "./judge/index.ts";
 import { scoreSample } from "./metrics/index.ts";
 import { PAIRWISE_PROMPT_VERSION, RUBRIC_PROMPT_VERSION } from "./judge/prompts.ts";
-import { corpusSource, needsModelForCorpus, runCell, sampleId, taskSource, type Source } from "./pipeline/run.ts";
+import { corpusSource, needsModelForCorpus, reusesIntervention, runCell, sampleId, taskSource, type Source } from "./pipeline/run.ts";
 import { createProvider } from "./providers/index.ts";
 import { aggregate } from "./report/aggregate.ts";
 import { renderMarkdown } from "./report/markdown.ts";
@@ -96,7 +96,11 @@ program
     const perCell = Number(o.samples);
     const f = files(o.run);
     ensureDir(f.dir);
-    const existing = new Set(o.force ? [] : loadSamples(o.run).filter((s) => !s.error).map((s) => s.id));
+    // 既存サンプル。reuse ステップの参照先にもなる（--force のときも参照先として残し、再生成されたら置き換わる）
+    const store = new Map<string, Sample>(loadSamples(o.run).filter((s) => !s.error).map((s) => [s.id, s]));
+    const existing = new Set(o.force ? [] : store.keys());
+    const lookup = (sourceId: string, modelId: string, interventionId: string, index: number) =>
+      store.get(sampleId(sourceId, modelId, interventionId, index));
 
     let sources: Source[];
     if (o.corpus !== undefined && o.corpus !== false) {
@@ -122,17 +126,22 @@ program
     log(`${jobs.length} セルを実行します（スキップ ${existing.size}）`);
     let done = 0;
     let errors = 0;
-    await mapLimit(jobs, Number(o.concurrency), async (job) => {
-      const sample = await runCell(job.source, job.model, job.intervention, job.index, { runId: o.run, allModels });
-      appendJsonl(f.samples, sample);
-      done += 1;
-      if (sample.error) {
-        errors += 1;
-        log(`  [${done}/${jobs.length}] ERROR ${sample.id}: ${sample.error}`);
-      } else {
-        log(`  [${done}/${jobs.length}] ${sample.id} (${sample.text.length}字)`);
-      }
-    });
+    // 他の介入の出力を再利用する介入は、参照先がそろってから実行する
+    const phases = [jobs.filter((j) => !reusesIntervention(j.intervention)), jobs.filter((j) => reusesIntervention(j.intervention))];
+    for (const phase of phases) {
+      await mapLimit(phase, Number(o.concurrency), async (job) => {
+        const sample = await runCell(job.source, job.model, job.intervention, job.index, { runId: o.run, allModels, lookup });
+        appendJsonl(f.samples, sample);
+        if (!sample.error) store.set(sample.id, sample);
+        done += 1;
+        if (sample.error) {
+          errors += 1;
+          log(`  [${done}/${jobs.length}] ERROR ${sample.id}: ${sample.error}`);
+        } else {
+          log(`  [${done}/${jobs.length}] ${sample.id} (${sample.text.length}字)`);
+        }
+      });
+    }
     log(`完了: ${done} 件（エラー ${errors}）→ ${f.samples}`);
   });
 
