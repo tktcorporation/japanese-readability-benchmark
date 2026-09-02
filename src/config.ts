@@ -14,34 +14,41 @@ export const idSchema = z
   .regex(/^[A-Za-z0-9][A-Za-z0-9_.+-]*$/, "id は英数字で始まり、英数字と _ . + - だけを使ってください")
   .refine((s) => !s.includes("__"), { message: "id に __ は使えません" });
 
-const taskSchema = z.object({
-  id: idSchema,
-  category: z.string(),
-  title: z.string(),
-  prompt: z.string(),
-  audience: z.string().optional(),
-  tags: z.array(z.string()).optional(),
-});
+// すべて strict: 綴り間違いのキー（reuse → resue など）を黙って捨てず、読み込み時にエラーにする
+const taskSchema = z
+  .object({
+    id: idSchema,
+    category: z.string(),
+    title: z.string(),
+    prompt: z.string(),
+    audience: z.string().optional(),
+    tags: z.array(z.string()).optional(),
+  })
+  .strict();
 
-const modelSchema = z.object({
-  id: idSchema,
-  provider: z.enum(["anthropic", "openai", "mock"]),
-  model: z.string(),
-  label: z.string().optional(),
-  apiKeyEnv: z.string().optional(),
-  baseUrl: z.string().optional(),
-  maxTokens: z.number().optional(),
-  temperature: z.number().optional(),
-  thinking: z.enum(["adaptive", "none"]).optional(),
-  effort: z.enum(["low", "medium", "high", "xhigh", "max"]).optional(),
-  fallbacks: z.boolean().optional(),
-  mockStyle: z.string().optional(),
-});
+const modelSchema = z
+  .object({
+    id: idSchema,
+    provider: z.enum(["anthropic", "openai", "mock"]),
+    model: z.string(),
+    label: z.string().optional(),
+    apiKeyEnv: z.string().optional(),
+    baseUrl: z.string().optional(),
+    maxTokens: z.number().optional(),
+    temperature: z.number().optional(),
+    thinking: z.enum(["adaptive", "none"]).optional(),
+    effort: z.enum(["low", "medium", "high", "xhigh", "max"]).optional(),
+    fallbacks: z.boolean().optional(),
+    mockStyle: z.string().optional(),
+  })
+  .strict();
 
-const modelsFileSchema = z.object({
-  models: z.array(modelSchema),
-  judge: z.object({ model: z.string() }),
-});
+const modelsFileSchema = z
+  .object({
+    models: z.array(modelSchema),
+    judge: z.object({ model: z.string() }).strict(),
+  })
+  .strict();
 
 const stepSchema = z.discriminatedUnion("type", [
   z
@@ -52,24 +59,39 @@ const stepSchema = z.discriminatedUnion("type", [
       promptPrefix: z.string().optional(),
       promptSuffix: z.string().optional(),
     })
+    .strict()
     .refine((s) => !s.reuse || (!s.system && !s.promptPrefix && !s.promptSuffix), {
       message: "generate の reuse は system / promptPrefix / promptSuffix と併用できません",
     }),
-  z.object({ type: z.literal("textlint-fix"), config: z.string().optional() }),
-  z.object({
-    type: z.literal("rewrite"),
-    prompt: z.string(),
-    model: z.string().optional(),
-    passes: z.number().int().positive().optional(),
-  }),
+  z.object({ type: z.literal("textlint-fix"), config: z.string().optional() }).strict(),
+  z
+    .object({
+      type: z.literal("rewrite"),
+      prompt: z.string(),
+      model: z.string().optional(),
+      passes: z.number().int().positive().optional(),
+    })
+    .strict(),
 ]);
 
-const interventionSchema = z.object({
-  id: idSchema,
-  name: z.string(),
-  description: z.string().optional(),
-  steps: z.array(stepSchema).min(1),
-});
+const interventionSchema = z
+  .object({
+    id: idSchema,
+    name: z.string(),
+    description: z.string().optional(),
+    steps: z.array(stepSchema).min(1),
+  })
+  .strict();
+
+/** 同じ id が 2 つあると片方のサンプルが黙って落ちるので、読み込み時に止める */
+export function assertUniqueIds<T extends { id: string }>(items: T[], kind: string): T[] {
+  const seen = new Set<string>();
+  for (const item of items) {
+    if (seen.has(item.id)) throw new Error(`${kind}の id "${item.id}" が重複しています`);
+    seen.add(item.id);
+  }
+  return items;
+}
 
 function listFiles(dir: string, ext: string): string[] {
   if (!existsSync(dir)) return [];
@@ -80,7 +102,10 @@ function listFiles(dir: string, ext: string): string[] {
 }
 
 export function loadTasks(dir = repoPath("tasks")): TaskDef[] {
-  return listFiles(dir, ".yaml").map((file) => taskSchema.parse(parseYaml(readText(file))));
+  return assertUniqueIds(
+    listFiles(dir, ".yaml").map((file) => taskSchema.parse(parseYaml(readText(file)))),
+    "タスク",
+  );
 }
 
 /** frontmatter 付き Markdown からコーパス文書を読む */
@@ -99,7 +124,10 @@ export function parseCorpusDoc(raw: string, fallbackId: string): CorpusDoc {
 }
 
 export function loadCorpus(dir = repoPath("corpus")): CorpusDoc[] {
-  return listFiles(dir, ".md").map((file) => parseCorpusDoc(readText(file), basename(file, ".md")));
+  return assertUniqueIds(
+    listFiles(dir, ".md").map((file) => parseCorpusDoc(readText(file), basename(file, ".md"))),
+    "コーパス",
+  );
 }
 
 export interface ModelsConfig {
@@ -108,14 +136,19 @@ export interface ModelsConfig {
 }
 
 export function loadModels(file = repoPath("config", "models.yaml")): ModelsConfig {
-  return modelsFileSchema.parse(parseYaml(readText(file)));
+  const cfg = modelsFileSchema.parse(parseYaml(readText(file)));
+  assertUniqueIds(cfg.models, "モデル");
+  return cfg;
 }
 
 export function loadInterventions(dir = repoPath("interventions")): InterventionDef[] {
-  return listFiles(dir, ".yaml").map((file) => {
-    const def = interventionSchema.parse(parseYaml(readText(file)));
-    return { ...def, dir: dirname(file) };
-  });
+  return assertUniqueIds(
+    listFiles(dir, ".yaml").map((file) => {
+      const def = interventionSchema.parse(parseYaml(readText(file)));
+      return { ...def, dir: dirname(file) };
+    }),
+    "介入",
+  );
 }
 
 export function pick<T extends { id: string }>(all: T[], ids: string[] | undefined, kind: string): T[] {

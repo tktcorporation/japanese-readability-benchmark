@@ -67,6 +67,12 @@ function parsePositiveInt(name: string, value: string): number {
   return n;
 }
 
+function parseNonNegativeInt(name: string, value: string): number {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 0) throw new Error(`${name} は 0 以上の整数で指定してください: "${value}"`);
+  return n;
+}
+
 /** 採点・判定を読む。再生成で本文が変わったサンプルの記録は除外される */
 function loadDerived(runId: string, samples: Sample[]) {
   const f = files(runId);
@@ -209,7 +215,7 @@ program
     const done = new Set(o.force ? [] : loadDerived(o.run, all).scores.map((s) => s.sampleId));
     const todo = samples.filter((s) => !done.has(s.id));
     log(`${todo.length} 件を採点します（スキップ ${done.size}）`);
-    await mapLimit(todo, Number(o.concurrency), async (s) => {
+    await mapLimit(todo, parsePositiveInt("--concurrency", o.concurrency), async (s) => {
       const rec = await scoreSample(s);
       appendJsonl(f.scores, rec);
       log(`  ${s.id}: textlint ${rec.metrics.textlintCount} 件, 平均文長 ${rec.metrics.meanSentenceLength?.toFixed(1)}`);
@@ -234,6 +240,8 @@ program
       throw new Error(`--mode "${o.mode}" は不正です。候補: rubric, pairwise, both`);
     }
     parseSchemes(o.schemes); // 早めに検証する
+    const limit = o.limit === undefined ? Infinity : parseNonNegativeInt("--limit", o.limit);
+    const concurrency = parsePositiveInt("--concurrency", o.concurrency);
     const f = files(o.run);
     const cfg = loadModels();
     const judgeModel = pick(cfg.models, [o.judge ?? cfg.judge.model], "モデル")[0]!;
@@ -245,8 +253,6 @@ program
     const samples = all.filter((s) => !s.error && s.text.length > 0);
     // 本文が変わったサンプルの古い判定は除外済み。プロンプトの版が変わった判定も未完了として扱う
     const existing = loadDerived(o.run, all).judgments;
-    const limit = o.limit ? Number(o.limit) : Infinity;
-    const concurrency = Number(o.concurrency);
     let budget = limit;
 
     if (o.mode === "rubric" || o.mode === "both") {
