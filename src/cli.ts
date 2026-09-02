@@ -217,6 +217,10 @@ program
   .option("--concurrency <n>", "同時実行数", "3")
   .option("--no-cache", "判定キャッシュを使わない")
   .action(async (o: { run: string; mode: string; schemes: string; judge?: string; baseline: string; limit?: string; concurrency: string; cache: boolean }) => {
+    if (!["rubric", "pairwise", "both"].includes(o.mode)) {
+      throw new Error(`--mode "${o.mode}" は不正です。候補: rubric, pairwise, both`);
+    }
+    parseSchemes(o.schemes); // 早めに検証する
     const f = files(o.run);
     const cfg = loadModels();
     const judgeModel = pick(cfg.models, [o.judge ?? cfg.judge.model], "モデル")[0]!;

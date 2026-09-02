@@ -14,9 +14,13 @@ export class OpenAIProvider implements Provider {
   private readonly client: OpenAI;
 
   constructor(readonly model: ModelDef) {
-    const apiKey = process.env[model.apiKeyEnv ?? "OPENAI_API_KEY"];
+    const envName = model.apiKeyEnv ?? "OPENAI_API_KEY";
+    const apiKey = process.env[envName];
+    // 指定した変数が未設定のとき、SDK が OPENAI_API_KEY に暗黙に切り替えると、
+    // 無関係な資格情報を互換エンドポイント（Gemini や Ollama など）へ送ってしまう。明示的に止める
+    if (!apiKey) throw new Error(`モデル "${model.id}" の API キー（環境変数 ${envName}）が設定されていません`);
     this.client = new OpenAI({
-      ...(apiKey ? { apiKey } : {}),
+      apiKey,
       ...(model.baseUrl ? { baseURL: model.baseUrl } : {}),
     });
   }

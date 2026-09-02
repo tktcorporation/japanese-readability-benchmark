@@ -18,8 +18,15 @@ export class AnthropicProvider implements Provider {
   private readonly client: Anthropic;
 
   constructor(readonly model: ModelDef) {
-    const apiKey = model.apiKeyEnv ? process.env[model.apiKeyEnv] : undefined;
-    this.client = new Anthropic(apiKey ? { apiKey } : {});
+    if (model.apiKeyEnv) {
+      // 指定した変数が未設定なら、既定の資格情報に暗黙に切り替えず止める
+      const apiKey = process.env[model.apiKeyEnv];
+      if (!apiKey) throw new Error(`モデル "${model.id}" の API キー（環境変数 ${model.apiKeyEnv}）が設定されていません`);
+      this.client = new Anthropic({ apiKey });
+    } else {
+      // ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN / `ant auth login` のプロファイルの順に解決される
+      this.client = new Anthropic();
+    }
   }
 
   private baseParams(req: GenerateRequest): Anthropic.MessageCreateParamsNonStreaming {

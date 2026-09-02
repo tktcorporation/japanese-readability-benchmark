@@ -43,8 +43,9 @@ export function loadSamples(path: string): Sample[] {
   return Array.from(byId.values()).filter((s) => isFresh(s.id));
 }
 
+/** 成功したサンプルだけが「現在の本文」を持つ。失敗した記録の本文（中間結果や空）は鮮度の根拠にしない */
 export function sampleHashes(samples: Sample[]): Map<string, string> {
-  return new Map(samples.map((s) => [s.id, sha256(s.text)]));
+  return new Map(samples.filter((s) => !s.error).map((s) => [s.id, sha256(s.text)]));
 }
 
 function isCurrent(hashes: Map<string, string>, sampleId: string, recordHash: string | undefined): boolean {

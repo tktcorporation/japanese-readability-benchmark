@@ -73,6 +73,25 @@ describe("store", () => {
     expect(loadSamples(file).map((s) => s.id)).toEqual(["base", "b", "fresh"]);
   });
 
+  it("失敗した再実行は、同じ本文でも採点・判定の鮮度の根拠にならない", () => {
+    const sFile = join(dir, "failed-samples.jsonl");
+    const scFile = join(dir, "failed-scores.jsonl");
+    const jFile = join(dir, "failed-judgments.jsonl");
+    const ok = sample("x", "本文。");
+    appendJsonl(sFile, ok);
+    appendJsonl(sFile, sample("y", "別の本文。"));
+    appendJsonl(scFile, score("x", sha256(ok.text), 1));
+    appendJsonl(scFile, score("y", sha256("別の本文。"), 2));
+    appendJsonl(jFile, rubric("x", sha256(ok.text), 3));
+    appendJsonl(jFile, pairwise(ok, sample("y", "別の本文。")));
+    expect(loadScores(scFile, loadSamples(sFile)).map((s) => s.sampleId)).toEqual(["x", "y"]);
+    expect(loadJudgments(jFile, loadSamples(sFile))).toHaveLength(2);
+    // --force で作り直したが、中間結果が同じ本文のまま失敗した
+    appendJsonl(sFile, { ...ok, error: "API error" });
+    expect(loadScores(scFile, loadSamples(sFile)).map((s) => s.sampleId)).toEqual(["y"]);
+    expect(loadJudgments(jFile, loadSamples(sFile))).toHaveLength(0);
+  });
+
   it("再利用の連鎖（C→B→A）は A が変わったら B も C も捨てる", () => {
     const file = join(dir, "chain.jsonl");
     const a = sample("a", "A の本文。");
