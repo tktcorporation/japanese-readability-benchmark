@@ -17,16 +17,19 @@ export function buildHumanPairs(samples: Sample[], opts: BuildHumanPairsOptions)
   for (const scheme of opts.schemes) {
     for (const p of buildPairs(samples, scheme, opts.baselineId)) {
       const src = opts.sources.get(p.sourceId);
+      const taskTitle = src?.title ?? p.sourceId;
+      const audience = src?.audience ?? "";
       pairs.push({
-        // 本文もキーに含める。サンプルを再生成すると別のペアになり、古い投票は集計から外れる
-        id: sha256(scheme, p.a.id, p.b.id, p.a.text, p.b.text).slice(0, 16),
+        // 本文と、評価者に見せる課題名・想定読者もキーに含める。
+        // サンプルを再生成したり文脈を直したりすると別のペアになり、古い投票は集計から外れる
+        id: sha256(scheme, p.a.id, p.b.id, p.a.text, p.b.text, taskTitle, audience).slice(0, 16),
         sourceId: p.sourceId,
         scheme,
         aSampleId: p.a.id,
         bSampleId: p.b.id,
         aText: p.a.text,
         bText: p.b.text,
-        taskTitle: src?.title ?? p.sourceId,
+        taskTitle,
         audience: src?.audience,
       });
     }

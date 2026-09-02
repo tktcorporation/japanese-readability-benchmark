@@ -301,10 +301,9 @@ export function aggregate(input: AggregateInput): Report {
   }
 
   // --- モデル比較（baseline のみ） ------------------------------------------
-  // baseline のサンプルを持つモデルだけを並べる（コーパス run では baseline が原文なのでモデル比較は成立しない）
-  const modelIds = Array.from(
-    new Set(samples.filter((s) => s.modelId !== "none" && s.interventionId === baselineId && !s.error).map((s) => s.modelId)),
-  ).sort();
+  // baseline のサンプルを持つモデルを並べる（失敗だけのモデルも、失敗したことが分かるように行を出す）。
+  // コーパス run では baseline が原文（modelId "none"）なのでモデル比較は成立しない
+  const modelIds = Array.from(new Set(samples.filter((s) => s.modelId !== "none" && s.interventionId === baselineId).map((s) => s.modelId))).sort();
   const models: ModelReport[] = modelIds.map((modelId) => {
     const ss = samples.filter((s) => s.modelId === modelId && s.interventionId === baselineId);
     const okRows = ss.filter((s) => !s.error).map((s) => rows.get(s.id) ?? {});

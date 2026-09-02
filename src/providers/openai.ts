@@ -61,6 +61,8 @@ export class OpenAIProvider implements Provider {
       model: this.model.model,
       messages: this.messages(req),
       max_completion_tokens: req.maxTokens ?? this.model.maxTokens ?? DEFAULT_MAX_TOKENS,
+      // 生成と同じ条件で判定する（設定した temperature を判定にも適用）
+      ...(this.model.temperature !== undefined ? { temperature: this.model.temperature } : {}),
       response_format: zodResponseFormat(schema, name),
     });
     const choice = completion.choices[0];

@@ -43,6 +43,9 @@ describe("config", () => {
     expect(parseCorpusDoc("本文だけ", "fb")).toMatchObject({ id: "fb", text: "本文だけ" });
     const crlf = parseCorpusDoc("---\r\nid: y\r\ntitle: 題\r\naudience: 読者\r\n---\r\n本文。\r\n", "fallback");
     expect(crlf).toMatchObject({ id: "y", title: "題", audience: "読者", text: "本文。" });
+    // frontmatter は strict。綴り間違いや型違いは黙って既定値に置き換えず、エラーにする
+    expect(() => parseCorpusDoc("---\nid: z\naudiense: 読者\n---\n本文", "fb")).toThrow();
+    expect(() => parseCorpusDoc("---\nid: z\naudience: [a, b]\n---\n本文", "fb")).toThrow();
   });
   it("id は英数字と _ . + - に限り、__ を含まない（サンプル id の区切りと衝突しない）", () => {
     for (const ok of ["baseline", "style-prompt+textlint", "fable-5.1", "gpt_5"]) expect(idSchema.safeParse(ok).success).toBe(true);

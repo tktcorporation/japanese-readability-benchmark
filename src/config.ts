@@ -108,18 +108,29 @@ export function loadTasks(dir = repoPath("tasks")): TaskDef[] {
   );
 }
 
+/** コーパスの frontmatter。strict なので綴り間違い（audiense など）は読み込み時にエラーになる */
+const corpusFrontmatterSchema = z
+  .object({
+    id: idSchema.optional(),
+    title: z.string().optional(),
+    note: z.string().optional(),
+    audience: z.string().optional(),
+    tags: z.array(z.string()).optional(),
+  })
+  .strict();
+
 /** frontmatter 付き Markdown からコーパス文書を読む */
 export function parseCorpusDoc(raw: string, fallbackId: string): CorpusDoc {
   // CRLF のファイルでも frontmatter を認識する
   const m = raw.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n)?([\s\S]*)$/);
-  const meta = m ? ((parseYaml(m[1] ?? "") as Record<string, unknown> | null) ?? {}) : {};
+  const meta = corpusFrontmatterSchema.parse(m ? (parseYaml(m[1] ?? "") ?? {}) : {});
   const text = (m ? (m[2] ?? "") : raw).trim();
   return {
-    id: idSchema.parse(typeof meta.id === "string" ? meta.id : fallbackId),
-    title: typeof meta.title === "string" ? meta.title : fallbackId,
-    note: typeof meta.note === "string" ? meta.note : undefined,
-    audience: typeof meta.audience === "string" ? meta.audience : undefined,
-    tags: Array.isArray(meta.tags) ? (meta.tags as string[]) : undefined,
+    id: idSchema.parse(meta.id ?? fallbackId),
+    title: meta.title ?? fallbackId,
+    note: meta.note,
+    audience: meta.audience,
+    tags: meta.tags,
     text,
   };
 }

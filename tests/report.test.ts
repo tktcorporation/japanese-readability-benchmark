@@ -131,6 +131,15 @@ describe("aggregate", () => {
     expect(renderMarkdown(z)).toContain("他に j の判定あり");
     expect(() => aggregate({ runId: "r", samples, scores, judgments, judgeModel: "nope" })).toThrow();
   });
+  it("baseline がすべて失敗したモデルも行を出し、エラー数が分かる", () => {
+    const ss = [sample("ok-base", "m-ok", "baseline"), { ...sample("ng-base", "m-ng", "baseline"), error: "API error" }];
+    const r = aggregate({ runId: "r", samples: ss, scores: [score("ok-base", ss[0]!, { textlintPer1k: 1 })], judgments: [] });
+    expect(r.models.map((m) => [m.modelId, m.samples, m.errors])).toEqual([
+      ["m-ng", 1, 1],
+      ["m-ok", 1, 0],
+    ]);
+    expect(renderMarkdown(r)).toMatch(/\| m-ng \| 0 \|/);
+  });
   it("コーパス run では baseline を持つモデルがないのでモデル比較を出さない", () => {
     const corpusSamples = [
       { ...sample("orig", "none", "baseline", "c1"), sourceType: "corpus" as const },
@@ -213,6 +222,11 @@ describe("人手評価", () => {
     // ペア ID は本文を含むので、再生成後に pairs を作り直すと別 ID になる
     const newPairs = buildHumanPairs(regenerated, { schemes: ["interventions"], baselineId: "baseline", sources });
     expect(newPairs.find((x) => x.aSampleId === "m1-fix")?.id).not.toBe(p.id);
+    // 評価者に見せる課題名・想定読者を直しても別 ID になる（本文が同じでも古い投票は使わない）
+    const renamed = buildHumanPairs(samples, { schemes: ["interventions"], baselineId: "baseline", sources: new Map([["t1", { id: "t1", title: "課題（改）" }]]) });
+    expect(renamed.find((x) => x.aSampleId === "m1-fix")?.id).not.toBe(p.id);
+    const audienced = buildHumanPairs(samples, { schemes: ["interventions"], baselineId: "baseline", sources: new Map([["t1", { id: "t1", title: "課題", audience: "新人" }]]) });
+    expect(audienced.find((x) => x.aSampleId === "m1-fix")?.id).not.toBe(p.id);
   });
   it("majority は同数なら tie", () => {
     expect(majority(["A", "A", "B"])).toBe("A");
