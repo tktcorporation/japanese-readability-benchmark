@@ -1,5 +1,5 @@
 import { tokenize, type KuromojiToken } from "kuromojin";
-import { paragraphs, splitSentences, stripMarkdown } from "./sentences.ts";
+import { paragraphs, removeCodeBlocks, splitSentences, stripMarkdown } from "./sentences.ts";
 
 /**
  * 形態素解析（kuromoji / IPADIC）に基づく表層指標。
@@ -92,6 +92,7 @@ function maxRun(text: string, re: RegExp): number {
 }
 
 export async function surfaceMetrics(text: string): Promise<SurfaceMetrics> {
+  const noCode = removeCodeBlocks(text);
   const plain = stripMarkdown(text);
   const sentences = splitSentences(text);
   const body = plain.replace(/\s+/g, "");
@@ -164,7 +165,8 @@ export async function surfaceMetrics(text: string): Promise<SurfaceMetrics> {
     ...(jreadability === undefined ? {} : { jreadability }),
     rareruPerSentence: rareru / n,
     nominalizationPer1k: chars ? (nominalizations / chars) * 1000 : 0,
-    listLines: (text.match(/^\s*([-*+]|\d+[.)])\s+/gm) ?? []).length,
-    headings: (text.match(/^\s{0,3}#{1,6}\s+/gm) ?? []).length,
+    // 構成の数え上げもコードブロックを除いた本文に対して行う（Markdown の例として書かれた見出し・箇条書きを数えない）
+    listLines: (noCode.match(/^\s*([-*+]|\d+[.)])\s+/gm) ?? []).length,
+    headings: (noCode.match(/^\s{0,3}#{1,6}\s+/gm) ?? []).length,
   };
 }

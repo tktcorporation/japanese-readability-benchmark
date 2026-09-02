@@ -18,7 +18,8 @@ export function removeCodeBlocks(text: string): string {
   // 囲んでいる箇条書きの本文位置（列）。ネストした分だけ積む
   const listOffsets: number[] = [];
   // 引用記号（> ）を外した中身。フェンスやインデントの判定はこちらで行う
-  const unquote = (line: string) => line.replace(/^(?: {0,3}> ?)+/, "");
+  // 箇条書きの中の引用（"    > ```"）のように、引用記号の前に 4 スペース以上あっても外す
+  const unquote = (line: string) => line.replace(/^(?:\s*> ?)+/, "");
   const indentOf = (line: string) => (line.match(/^[ \t]*/)?.[0] ?? "").replace(/\t/g, "    ").length;
   for (let i = 0; i < lines.length; i += 1) {
     const line = unquote(lines[i]!);

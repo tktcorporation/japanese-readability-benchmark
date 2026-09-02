@@ -117,6 +117,16 @@ describe("removeCodeBlocks（箇条書きの続きの段落）", () => {
   });
 });
 
+describe("箇条書きの中の引用とコード", () => {
+  it("箇条書きの中で 4 スペース下がった引用の中のフェンスも落とし、コード内の見出し・箇条書きは構成として数えない", async () => {
+    const md = "- 説明です。\n    > ```js\n    > const x = 1;\n    > ```\n    > 引用です。\n\n```md\n# 例の見出し\n- 例の項目\n```\n本文です。";
+    expect(splitSentences(md)).toEqual(["説明です。", "引用です。", "本文です。"]);
+    const m = await surfaceMetrics(md);
+    expect(m.headings).toBe(0);
+    expect(m.listLines).toBe(1);
+  });
+});
+
 describe("stripMarkdown のインライン コード", () => {
   it("同じ長さのバッククォート列で区切られたコードを 1 つの X にする", () => {
     expect(stripMarkdown("これは `x` です。")).toBe("これは X です。");

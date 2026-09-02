@@ -1,6 +1,6 @@
 import { stripMarkdown } from "../metrics/sentences.ts";
 import { textlintToolchain } from "../metrics/textlint.ts";
-import { escapeDelimiters } from "../util/delimiters.ts";
+import { delimiterTagsOf, escapeDelimiters } from "../util/delimiters.ts";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { fixText } from "../metrics/textlint.ts";
@@ -320,12 +320,14 @@ async function executeStep(step: StepDef, ctx: StepContext): Promise<{ trace: St
       if (!model) throw new Error("rewrite ステップに使うモデルがありません（--models か steps[].model を指定）");
       const provider = createProvider(model);
       const template = readText(resolve(ctx.intervention.dir, step.prompt));
+      // テンプレートが本文を囲むのに使っている閉じタグ（独自テンプレートの <document> なども含む）を本文側で無害化する
+      const delimiterTags = delimiterTagsOf(template);
       let text = ctx.text;
       let usage: StepTrace["usage"];
       let servedBy: string | undefined;
       for (let i = 0; i < (step.passes ?? 1); i += 1) {
         // 本文に含まれる </text> などで区切りが閉じ、残りが指示として読まれないように無害化して埋め込む
-        const prompt = renderTemplate(template, { text: escapeDelimiters(text), audience: ctx.audience, title: ctx.source.title });
+        const prompt = renderTemplate(template, { text: escapeDelimiters(text, delimiterTags), audience: ctx.audience, title: ctx.source.title });
         const res = await provider.generate({ prompt, purpose: "rewrite", sourceId: ctx.source.id });
         text = nonEmpty(res.text, `rewrite（${model.id}、${i + 1} 回目）`);
         // 複数パスの消費トークンは合算して記録する（最後のパスだけでは実験のコストを過小に見せる）
