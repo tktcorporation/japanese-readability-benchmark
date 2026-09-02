@@ -8,7 +8,7 @@ import { lintText, textlintToolchain } from "./textlint.ts";
  * 指標の実装版。表層指標や jReadability の計算方法を変えたら上げる。
  * 採点設定ハッシュに含まれ、古い版で計算した採点は陳腐化して再計算される。
  */
-export const METRICS_VERSION = "metrics-v1";
+export const METRICS_VERSION = "metrics-v2";
 
 /** textlint 以外で採点に影響する依存パッケージ（表層指標・jReadability の形態素解析） */
 const SURFACE_PACKAGES = ["kuromojin"];

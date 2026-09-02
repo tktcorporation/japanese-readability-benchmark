@@ -385,8 +385,16 @@ program
       return;
     }
     const port = parsePositiveInt("--port", o.port);
+    // 作り直し後の古いペアや古い文脈のペアは配信しない（投票しても report / human-report で捨てられるため）
+    const sampleById = new Map(loadSamples(o.run).map((s) => [s.id, s]));
+    const sources = sourceInfos();
+    const allPairs = readJson<HumanPair[]>(f.pairs);
+    const pairs = allPairs.filter((p) => isCurrentPair(p, sampleById, sources));
+    if (pairs.length < allPairs.length) log(`注意: ${allPairs.length - pairs.length} ペアは現在のサンプル・定義と一致しないため配信しません（\`bench pairs --run ${o.run}\` で作り直せます）`);
+    if (pairs.length === 0) throw new Error(`配信できるペアがありません。\`bench pairs --run ${o.run}\` で作り直してください`);
     const server = createHumanEvalServer({
       pairsFile: f.pairs,
+      pairs,
       votesFile: f.votes,
       port,
       perRater: o.perRater === undefined ? undefined : parsePositiveInt("--per-rater", o.perRater),

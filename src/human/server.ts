@@ -25,6 +25,8 @@ const MIME: Record<string, string> = {
 
 export interface ServeOptions {
   pairsFile: string;
+  /** 渡すと pairsFile を読まずにこのペアを配信する（呼び出し側で現在のサンプル・定義と一致するものに絞ったとき） */
+  pairs?: HumanPair[];
   votesFile: string;
   port: number;
   staticDir?: string;
@@ -52,7 +54,7 @@ async function readBody(req: IncomingMessage): Promise<string> {
  */
 export function createHumanEvalServer(opts: ServeOptions) {
   const staticDir = opts.staticDir ?? repoPath("web");
-  const pairs = readJson<HumanPair[]>(opts.pairsFile);
+  const pairs = opts.pairs ?? readJson<HumanPair[]>(opts.pairsFile);
   const byId = new Map(pairs.map((p) => [p.id, p]));
 
   return createServer(async (req, res) => {

@@ -23,7 +23,9 @@ export type PairForValidation = Pick<HumanPair, "sourceId" | "aSampleId" | "bSam
 export function isCurrentPair(p: PairForValidation, sampleById: Map<string, Sample>, sources?: Map<string, SourceInfo>): boolean {
   const a = sampleById.get(p.aSampleId);
   const b = sampleById.get(p.bSampleId);
-  if (a === undefined || b === undefined || a.text !== p.aText || b.text !== p.bText) return false;
+  // 失敗した再実行は中間結果の本文を残すことがあるので、本文が同じでも成功していないサンプルのペアは使わない
+  if (a === undefined || b === undefined || a.error || b.error) return false;
+  if (a.text !== p.aText || b.text !== p.bText) return false;
   if (sources) {
     const src = sources.get(p.sourceId);
     if (!src || p.taskTitle !== src.title || (p.audience ?? DEFAULT_AUDIENCE) !== (src.audience ?? DEFAULT_AUDIENCE)) return false;

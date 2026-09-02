@@ -259,6 +259,8 @@ describe("人手評価", () => {
     expect(isCurrentPair(p, new Map(samples.map((s) => [s.id, s.id === "m1-fix" ? { ...s, text: "再生成" } : s])), sources)).toBe(false);
     expect(isCurrentPair(p, byId, new Map([["t1", { id: "t1", title: "課題（改）" }]]))).toBe(false);
     expect(isCurrentPair(p, byId, new Map())).toBe(false);
+    // 本文が同じでも、作り直しが失敗したサンプル（中間結果が残る）のペアは使わない
+    expect(isCurrentPair(p, new Map(samples.map((s) => [s.id, s.id === "m1-fix" ? { ...s, error: "失敗" } : s])), sources)).toBe(false);
   });
   it("majority は同数なら tie", () => {
     expect(majority(["A", "A", "B"])).toBe("A");

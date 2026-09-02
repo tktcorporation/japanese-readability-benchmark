@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { splitSentences, stripMarkdown } from "../src/metrics/sentences.ts";
+import { removeCodeBlocks, splitSentences, stripMarkdown } from "../src/metrics/sentences.ts";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -45,6 +45,37 @@ describe("splitSentences", () => {
     const md = "# 見出し\n\n- 項目一です。\n- 項目二です。\n\n```\nconst x = 1;\n```\n\n本文です。";
     expect(stripMarkdown(md)).not.toContain("const x");
     expect(splitSentences(md)).toEqual(["見出し", "項目一です。", "項目二です。", "本文です。"]);
+  });
+});
+
+describe("removeCodeBlocks", () => {
+  it("``` と ~~~ のフェンス、閉じないフェンス、インデントコードを落とし、ネストした箇条書きは残す", () => {
+    const md = [
+      "本文一です。",
+      "~~~js",
+      "const x = 1;",
+      "~~~",
+      "本文二です。",
+      "",
+      "    indented code",
+      "    more code",
+      "",
+      "- 項目です。",
+      "",
+      "    - ネストの項目です。",
+      "````",
+      "```",
+      "still code",
+      "````",
+      "本文三です。",
+      "```",
+      "unclosed code",
+    ].join("\n");
+    const plain = removeCodeBlocks(md);
+    expect(plain).not.toMatch(/const x|indented code|more code|still code|unclosed code/);
+    expect(splitSentences(md)).toEqual(["本文一です。", "本文二です。", "項目です。", "ネストの項目です。", "本文三です。"]);
+    expect(stripMarkdown("   ```\nコード\n```\n本文。")).not.toContain("コード"); // 行頭 0〜3 スペースはフェンス
+    expect(stripMarkdown("行頭 ```\nコード\n```\n本文。")).toContain("コード"); // 行の途中の ``` はフェンスではない
   });
 });
 
