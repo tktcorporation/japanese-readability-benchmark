@@ -69,6 +69,8 @@ export function provenanceHash(source: Source, model: ModelDef | undefined, inte
   return sha256(
     "provenance",
     JSON.stringify({
+      // タスク（生成する）とコーパス（原文をそのまま使う）では同じ内容でも意味が違うので、種別も含める
+      sourceType: source.type,
       source: sourceHash(source),
       title: source.title,
       audience: source.audience ?? "一般的な読者",

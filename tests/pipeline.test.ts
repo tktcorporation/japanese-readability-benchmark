@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { corpusSource, dependentsOf, needsModelForCorpus, provenanceHash, renderTemplate, reuseLevels, reusedInterventions, runCell, sampleId, sourceHash, taskSource } from "../src/pipeline/run.ts";
-import type { InterventionDef, Sample } from "../src/types.ts";
+import type { CorpusDoc, InterventionDef, Sample } from "../src/types.ts";
 
 const { models } = loadModels();
 const interventions = loadInterventions();
@@ -187,6 +187,10 @@ describe("runCell (mock)", () => {
     expect(provenanceHash(task, { ...mockVerbose, mockStyle: "missing-style" }, byId("baseline"), models)).not.toBe(base);
     // 介入定義
     expect(provenanceHash(task, mockVerbose, byId("style-prompt"), models)).not.toBe(base);
+    // 同じ id・題名・内容でも、タスク（生成する）からコーパス（原文を使う）に移せば別のセル
+    const t0 = loadTasks()[0]!;
+    const moved = corpusSource({ id: t0.id, title: t0.title, text: t0.prompt, audience: t0.audience } as CorpusDoc);
+    expect(provenanceHash(moved, undefined, byId("baseline"), models)).not.toBe(provenanceHash(task, undefined, byId("baseline"), models));
     // 参照プロンプトファイルの内容
     const sp = byId("style-prompt");
     const withPrompt = provenanceHash(task, mockVerbose, sp, models);

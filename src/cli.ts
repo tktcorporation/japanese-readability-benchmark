@@ -8,7 +8,8 @@ import { createHumanEvalServer } from "./human/server.ts";
 import { buildPairs, contextHashOf, judgeConfigHashOf, judgePairwise, judgeRubric, type SourceInfo } from "./judge/index.ts";
 import { scoreSample, scoringHashOf } from "./metrics/index.ts";
 import { PAIRWISE_PROMPT_VERSION, RUBRIC_PROMPT_VERSION } from "./judge/prompts.ts";
-import { cellKey, corpusSource, dependentsOf, needsModelForCorpus, provenanceHash, reuseLevels, runCell, sampleId, taskSource, type Source } from "./pipeline/run.ts";
+import { extraSamples, planJobs } from "./pipeline/plan.ts";
+import { cellKey, corpusSource, provenanceHash, reuseLevels, runCell, sampleId, taskSource, type Source } from "./pipeline/run.ts";
 import { createProvider } from "./providers/index.ts";
 import { aggregate } from "./report/aggregate.ts";
 import { renderMarkdown } from "./report/markdown.ts";
@@ -168,10 +169,8 @@ program
     const f = files(o.run);
     ensureDir(f.dir);
     // 既存サンプル。reuse ステップの参照先にもなる（--force のときも参照先として残し、再生成されたら置き換わる）
-    const store = new Map<string, Sample>(loadSamples(o.run, { mustExist: false }).filter((s) => !s.error).map((s) => [s.id, s]));
-    const existing = new Set(o.force ? [] : store.keys());
-    // --force の巻き添え判定は、鮮度で捨てられた依存セルも含めて「一度でも作ったことがある」かで決める
-    const persisted = o.force ? persistedSampleIds(f.samples) : new Set<string>();
+    const freshSamples = loadSamples(o.run, { mustExist: false });
+    const store = new Map<string, Sample>(freshSamples.filter((s) => !s.error).map((s) => [s.id, s]));
     const lookup = (sourceId: string, modelId: string, interventionId: string, index: number) =>
       store.get(sampleId(sourceId, modelId, interventionId, index));
 
@@ -184,39 +183,26 @@ program
       sources = pick(all.tasks, parseList(o.tasks), "タスク").map(taskSource);
     }
 
-    type Job = { source: Source; model: ModelDef | undefined; intervention: (typeof interventions)[number]; index: number };
-    const jobs: Job[] = [];
-    const jobIds = new Set<string>();
-    const addJob = (job: Job) => {
-      const id = sampleId(job.source.id, job.model?.id ?? "none", job.intervention.id, job.index);
-      if (existing.has(id) || jobIds.has(id)) return;
-      jobIds.add(id);
-      jobs.push(job);
-    };
-    for (const source of sources) {
-      for (const intervention of interventions) {
-        const modelChoices: (ModelDef | undefined)[] =
-          source.type === "corpus" && !needsModelForCorpus(intervention, allInterventions) ? [undefined] : models;
-        for (const model of modelChoices) {
-          for (let index = 0; index < perCell; index += 1) {
-            addJob({ source, model, intervention, index });
-            // --force で作り直す出力を再利用している介入は、選択されていなくても一緒に作り直す。
-            // コーパス起点では baseline（原文）のモデルは "none" だが、依存側（rewrite-pass など）は各モデルを持つ
-            if (o.force) {
-              const candidates: (ModelDef | undefined)[] = source.type === "corpus" ? [undefined, ...models] : [model];
-              for (const dependent of dependentsOf(intervention.id, allInterventions)) {
-                for (const m of candidates) {
-                  if (persisted.has(sampleId(source.id, m?.id ?? "none", dependent.id, index))) {
-                    addJob({ source, model: m, intervention: dependent, index });
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
+    const { jobs, cells, skipped } = planJobs({
+      sources,
+      models,
+      interventions,
+      allInterventions,
+      perCell,
+      force: o.force,
+      fresh: new Set(store.keys()),
+      // --force の巻き添え判定は、鮮度で捨てられた依存セルも含めて「一度でも作ったことがある」かで決める
+      persisted: o.force ? persistedSampleIds(f.samples) : new Set<string>(),
+    });
+    // サンプルは index ごとに残るので、既存の run で --samples を減らすと余った index が集計に混ざる
+    const extra = extraSamples(cells, perCell, freshSamples.map((s) => s.id));
+    if (extra.length) {
+      throw new Error(
+        `run "${o.run}" には --samples ${perCell} を超える index のサンプルが ${extra.length} 件あります（例: ${extra[0]}）。` +
+          "既存の run では --samples を減らせません。同じ値以上を指定するか、別の run id を使ってください",
+      );
     }
-    log(`${jobs.length} セルを実行します（スキップ ${existing.size}）`);
+    log(`${jobs.length} セルを実行します（スキップ ${skipped}）`);
     let done = 0;
     let errors = 0;
     // 他の介入の出力を再利用する介入は、参照先の段階がすべて終わってから実行する
