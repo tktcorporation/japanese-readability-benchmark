@@ -228,7 +228,9 @@ export async function runCell(
       trace.trace.ms = Date.now() - started;
       base.steps.push(trace.trace);
       if (trace.text !== undefined) {
-        if (inputText === undefined) inputText = trace.text;
+        // 介入前の文章は generate（再利用を含む）の出力。コーパス起点で別の介入の出力を再利用したときは、
+        // 原文ではなく再利用した本文がこの介入の入力になる
+        if (step.type === "generate" || inputText === undefined) inputText = trace.text;
         text = trace.text;
       }
     }

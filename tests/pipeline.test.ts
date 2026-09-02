@@ -160,17 +160,20 @@ describe("runCell (mock)", () => {
     const doc = loadCorpus()[0]!;
     const corpus = corpusSource(doc);
     await run(corpus, undefined, "baseline");
-    const fixed = await run(corpus, undefined, "textlint-fix");
+    const rewritten = await run(corpus, mockVerbose, "rewrite-pass");
+    expect(rewritten.text).not.toBe(doc.text);
     const chained: InterventionDef = {
-      id: "after-fix",
-      name: "textlint-fix の出力を書き直す",
-      dir: byId("rewrite-pass").dir,
-      steps: [{ type: "generate", reuse: "textlint-fix" }, { type: "rewrite", prompt: "prompts/rewrite.md" }],
+      id: "after-rewrite",
+      name: "rewrite-pass の出力を textlint で整える",
+      dir: byId("textlint-fix").dir,
+      steps: [{ type: "generate", reuse: "rewrite-pass" }, { type: "textlint-fix" }],
     };
     const s = await runCell(corpus, mockVerbose, chained, 0, opts);
     expect(s.error).toBeUndefined();
-    expect(s.steps[0]).toMatchObject({ type: "generate", reusedFrom: fixed.id });
-    expect(s.inputText).toBe(fixed.text);
+    expect(s.steps[0]).toMatchObject({ type: "generate", reusedFrom: rewritten.id });
+    // 介入前の文章（inputText）は原文ではなく、再利用した rewrite-pass の出力
+    expect(s.inputText === undefined ? s.text : s.inputText).toBe(rewritten.text);
+    expect(s.inputText).not.toBe(doc.text);
   });
   it("サンプルは生成来歴のハッシュを持ち、入力・モデル設定・介入定義・参照プロンプトのどれを変えても変わる", async () => {
     const s = await run(task, mockVerbose, "baseline");

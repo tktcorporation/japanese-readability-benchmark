@@ -215,7 +215,7 @@ describe("人手評価", () => {
     expect(summary.raters).toBe(3);
     expect(summary.perPair[0]).toMatchObject({ verdict: "A", a: 2, b: 1 });
     expect(summary.interRaterAgreement).toMatchObject({ pairs: 1, agree: 0 });
-    expect(summary.medianSeconds).toBe(20);
+    expect(summary.medianSeconds).toBe(15); // 10 秒と 20 秒の中央値（偶数個なら中央 2 つの平均）
 
     const report = aggregate({ runId: "r", samples, scores, judgments, humanVotes: votes, humanPairs: pairs });
     const cell = report.cells.find((c) => c.modelId === "m1" && c.interventionId === "textlint-fix")!;

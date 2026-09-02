@@ -12,6 +12,13 @@ export interface HumanSummary {
   medianSeconds?: number;
 }
 
+/** 昇順に並んだ数列の中央値。偶数個なら中央 2 つの平均 */
+function median(sorted: number[]): number | undefined {
+  if (sorted.length === 0) return undefined;
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : round((sorted[mid - 1]! + sorted[mid]!) / 2, 1);
+}
+
 export function summarizeVotes(pairs: HumanPair[], allVotes: HumanVote[]): HumanSummary {
   // 現在の pairs にあるペアへの投票だけを数える（作り直す前の古いペア ID は無視）
   const pairIds = new Set(pairs.map((p) => p.id));
@@ -40,6 +47,6 @@ export function summarizeVotes(pairs: HumanPair[], allVotes: HumanVote[]): Human
     raters: new Set(votes.map((v) => v.raterId)).size,
     interRaterAgreement: multi ? { pairs: multi, agree, rate: round(agree / multi, 3) } : undefined,
     perPair,
-    medianSeconds: secs.length ? secs[Math.floor(secs.length / 2)] : undefined,
+    medianSeconds: median(secs),
   };
 }
