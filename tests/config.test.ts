@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { assertUniqueIds, loadCorpus, loadInterventions, loadTasks } from "../src/config.ts";
+import { assertUniqueIds, loadAllSources, loadCorpus, loadInterventions, loadTasks } from "../src/config.ts";
 
 const root = mkdtempSync(join(tmpdir(), "jrb-config-"));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -33,6 +33,11 @@ describe("設定の検証", () => {
     expect(() => loadInterventions(dirWith("typo-step", { "x.yaml": "id: x\nname: t\nsteps:\n  - type: generate\n    resue: baseline\n" }))).toThrow();
     expect(() => loadInterventions(dirWith("typo-top", { "x.yaml": "id: x\nname: t\nextra: 1\nsteps:\n  - type: generate\n" }))).toThrow();
     expect(loadInterventions(dirWith("ok", { "x.yaml": "id: x\nname: t\nsteps:\n  - type: generate\n    reuse: baseline\n" }))).toHaveLength(1);
+  });
+  it("同梱のタスクとコーパスは id がまたがって重複しない", () => {
+    const { tasks, corpus } = loadAllSources();
+    expect(tasks.length + corpus.length).toBeGreaterThan(0);
+    expect(() => assertUniqueIds([{ id: "shared" }, { id: "shared" }], "タスク/コーパス")).toThrow("タスク/コーパス");
   });
   it("タスク定義に知らないキーがあれば読み込み時にエラー", () => {
     expect(() => loadTasks(dirWith("typo-task", { "a.yaml": `${TASK}audiense: 読者\n` }))).toThrow();

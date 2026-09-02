@@ -157,8 +157,8 @@ export interface Sample {
   /** コーパス/生成直後の文章（介入前）。差分表示用 */
   inputText?: string;
   /**
-   * 入力のハッシュ。タスク起点ならプロンプト、コーパス起点なら原文。
-   * 定義を編集したら不一致になり、サンプルは陳腐化して次の run で作り直される
+   * 生成の来歴ハッシュ（入力、モデル設定、介入定義と参照ファイル、課題名・想定読者）。
+   * どれかを編集したら不一致になり、サンプルは陳腐化して次の run で作り直される
    */
   inputHash?: string;
   steps: StepTrace[];
@@ -207,6 +207,8 @@ export interface RubricJudgment {
   textHash?: string;
   /** 判定プロンプトに埋め込んだ課題名・想定読者のハッシュ。定義を直したら不一致になり、判定は陳腐化する */
   contextHash?: string;
+  /** 判定モデルの具体的な設定（provider・model・baseUrl など）のハッシュ。同じ id で設定を変えたら判定は陳腐化する */
+  judgeConfigHash?: string;
   judgeModel: string;
   promptVersion: string;
   scores: RubricScores;
@@ -230,6 +232,8 @@ export interface PairwiseJudgment {
   bTextHash?: string;
   /** 判定プロンプトに埋め込んだ課題名・想定読者のハッシュ */
   contextHash?: string;
+  /** 判定モデルの具体的な設定のハッシュ */
+  judgeConfigHash?: string;
   judgeModel: string;
   promptVersion: string;
   /** A を先に見せたときの判定 */

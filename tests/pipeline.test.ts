@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { idSchema, loadCorpus, loadInterventions, loadModels, loadTasks, parseCorpusDoc } from "../src/config.ts";
 import { surfaceMetrics } from "../src/metrics/surface.ts";
-import { corpusSource, dependentsOf, needsModelForCorpus, renderTemplate, reuseLevels, reusesIntervention, runCell, sampleId, sourceHash, taskSource } from "../src/pipeline/run.ts";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { corpusSource, dependentsOf, needsModelForCorpus, provenanceHash, renderTemplate, reuseLevels, reusesIntervention, runCell, sampleId, sourceHash, taskSource } from "../src/pipeline/run.ts";
 import type { InterventionDef, Sample } from "../src/types.ts";
 
 const { models } = loadModels();
@@ -156,10 +159,36 @@ describe("runCell (mock)", () => {
     expect(s.steps[0]).toMatchObject({ type: "generate", reusedFrom: fixed.id });
     expect(s.inputText).toBe(fixed.text);
   });
-  it("タスク起点のサンプルはプロンプトのハッシュを持つ", async () => {
+  it("サンプルは生成来歴のハッシュを持ち、入力・モデル設定・介入定義・参照プロンプトのどれを変えても変わる", async () => {
     const s = await run(task, mockVerbose, "baseline");
-    expect(s.inputHash).toBe(sourceHash(task));
+    const base = provenanceHash(task, mockVerbose, byId("baseline"), models);
+    expect(s.inputHash).toBe(base);
+    // 入力
+    expect(provenanceHash(taskSource({ ...loadTasks()[0]!, prompt: "別の指示" }), mockVerbose, byId("baseline"), models)).not.toBe(base);
     expect(sourceHash(task)).not.toBe(sourceHash(taskSource({ ...loadTasks()[0]!, prompt: "別の指示" })));
+    // 想定読者（rewrite テンプレートに入る）
+    expect(provenanceHash({ ...task, audience: "別の読者" }, mockVerbose, byId("baseline"), models)).not.toBe(base);
+    // モデル設定（id は同じ）
+    expect(provenanceHash(task, { ...mockVerbose, mockStyle: "plain" }, byId("baseline"), models)).not.toBe(base);
+    // 介入定義
+    expect(provenanceHash(task, mockVerbose, byId("style-prompt"), models)).not.toBe(base);
+    // 参照プロンプトファイルの内容
+    const sp = byId("style-prompt");
+    const withPrompt = provenanceHash(task, mockVerbose, sp, models);
+    const tmp = mkdtempSync(join(tmpdir(), "jrb-prov-"));
+    try {
+      mkdirSync(join(tmp, "prompts"));
+      writeFileSync(join(tmp, "prompts", "style-guide.md"), "別のルール");
+      expect(provenanceHash(task, mockVerbose, { ...sp, dir: tmp }, models)).not.toBe(withPrompt);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+    // rewrite ステップが明示するモデルの設定
+    const rp = byId("rewrite-pass");
+    const pinned: InterventionDef = { ...rp, steps: rp.steps.map((st) => (st.type === "rewrite" ? { ...st, model: "mock-plain" } : st)) };
+    const h1 = provenanceHash(task, mockVerbose, pinned, models);
+    const h2 = provenanceHash(task, mockVerbose, pinned, models.map((m) => (m.id === "mock-plain" ? { ...m, mockStyle: "verbose" } : m)));
+    expect(h1).not.toBe(h2);
   });
   it("needsModelForCorpus はモデル未指定の rewrite があるときだけ true", () => {
     expect(needsModelForCorpus(byId("baseline"))).toBe(false);

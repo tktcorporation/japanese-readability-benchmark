@@ -16,16 +16,16 @@ import { readJsonl, sha256 } from "./util/fs.ts";
 
 export interface LoadSamplesOptions {
   /**
-   * source id → 現在の入力ハッシュ（タスクはプロンプト、コーパスは原文）。
-   * 渡すと、入力が変わった（または定義が消えた）サンプルを捨てる
+   * セルキー（`<source>|<model>|<intervention>`）→ 現在の生成来歴ハッシュ（provenanceHash）。
+   * 渡すと、入力・モデル設定・介入定義のどれかが変わった（または定義が消えた）サンプルを捨てる
    */
-  sourceHashes?: Map<string, string>;
+  provenanceHashes?: Map<string, string>;
 }
 
 /**
  * 同じ id は後勝ち。次のサンプルは陳腐化として捨てる（run で選択されれば作り直され、report には載らない）:
  *   - 他の介入の出力を再利用したが、再利用元が失敗して存在しない、または本文が変わっている（連鎖は再帰的に辿る）
- *   - タスクのプロンプトやコーパスの原文が編集された・削除された（sourceHashes を渡したとき）
+ *   - 入力・モデル設定・介入定義・参照プロンプトのどれかが編集された、または定義が消えた（provenanceHashes を渡したとき）
  */
 export function loadSamples(path: string, opts: LoadSamplesOptions = {}): Sample[] {
   const byId = new Map<string, Sample>();
@@ -39,8 +39,8 @@ export function loadSamples(path: string, opts: LoadSamplesOptions = {}): Sample
     visiting.add(id);
     const s = byId.get(id);
     let result = true;
-    if (s && opts.sourceHashes) {
-      result = s.inputHash !== undefined && opts.sourceHashes.get(s.sourceId) === s.inputHash;
+    if (s && opts.provenanceHashes) {
+      result = s.inputHash !== undefined && opts.provenanceHashes.get(`${s.sourceId}|${s.modelId}|${s.interventionId}`) === s.inputHash;
     }
     const reuse = s?.steps.find((st) => st.type === "generate" && st.reusedFrom);
     if (result && s && reuse?.reusedFrom && reuse.reusedHash) {
@@ -84,6 +84,11 @@ export interface LoadJudgmentsOptions {
    * 渡すと、文脈が変わった判定を捨てる（判定プロンプトに埋め込まれているため）
    */
   contextHashes?: Map<string, string>;
+  /**
+   * 判定モデル id → 現在の設定ハッシュ（judgeConfigHashOf）。
+   * 渡すと、同じ id のまま設定が変わった判定モデルの判定や、設定にない判定モデルの判定を捨てる
+   */
+  judgeConfigHashes?: Map<string, string>;
 }
 
 export function loadJudgments(path: string, samples: Sample[], opts: LoadJudgmentsOptions = {}): Judgment[] {
@@ -96,12 +101,16 @@ export function loadJudgments(path: string, samples: Sample[], opts: LoadJudgmen
     const sourceId = sourceOf.get(sampleId);
     return sourceId !== undefined && contextHash !== undefined && opts.contextHashes.get(sourceId) === contextHash;
   };
-  return Array.from(byKey.values()).filter((j) =>
-    j.kind === "rubric"
-      ? j.promptVersion === RUBRIC_PROMPT_VERSION && isCurrent(hashes, j.sampleId, j.textHash) && contextCurrent(j.sampleId, j.contextHash)
-      : j.promptVersion === PAIRWISE_PROMPT_VERSION &&
-        isCurrent(hashes, j.aSampleId, j.aTextHash) &&
-        isCurrent(hashes, j.bSampleId, j.bTextHash) &&
-        contextCurrent(j.aSampleId, j.contextHash),
+  const judgeCurrent = (j: Judgment): boolean =>
+    !opts.judgeConfigHashes || (j.judgeConfigHash !== undefined && opts.judgeConfigHashes.get(j.judgeModel) === j.judgeConfigHash);
+  return Array.from(byKey.values()).filter(
+    (j) =>
+      judgeCurrent(j) &&
+      (j.kind === "rubric"
+        ? j.promptVersion === RUBRIC_PROMPT_VERSION && isCurrent(hashes, j.sampleId, j.textHash) && contextCurrent(j.sampleId, j.contextHash)
+        : j.promptVersion === PAIRWISE_PROMPT_VERSION &&
+          isCurrent(hashes, j.aSampleId, j.aTextHash) &&
+          isCurrent(hashes, j.bSampleId, j.bTextHash) &&
+          contextCurrent(j.aSampleId, j.contextHash)),
   );
 }

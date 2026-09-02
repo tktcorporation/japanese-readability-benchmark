@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { loadModels } from "../src/config.ts";
-import { buildPairs, combineVerdicts, contextHashOf, flipVerdict, judgePairwise, judgeRubric } from "../src/judge/index.ts";
+import { buildPairs, combineVerdicts, contextHashOf, flipVerdict, judgeConfigHashOf, judgePairwise, judgeRubric } from "../src/judge/index.ts";
 import { createProvider } from "../src/providers/index.ts";
 import { loadFixture } from "../src/providers/mock.ts";
 import type { Sample } from "../src/types.ts";
@@ -83,6 +83,10 @@ describe("mock judge", () => {
     expect(j.kind).toBe("rubric");
     expect(j.contextHash).toBe(contextHashOf(src));
     expect(contextHashOf(src)).not.toBe(contextHashOf({ ...src, audience: "新人" }));
+    expect(j.judgeConfigHash).toBe(judgeConfigHashOf(judge.model));
+    // id とラベルは同じでも、具体的な設定が変われば別の判定者
+    expect(judgeConfigHashOf({ ...judge.model, model: "other" })).not.toBe(judgeConfigHashOf(judge.model));
+    expect(judgeConfigHashOf({ ...judge.model, label: "別名" })).toBe(judgeConfigHashOf(judge.model));
     for (const v of Object.values(j.scores)) {
       expect(Number.isInteger(v)).toBe(true);
       expect(v).toBeGreaterThanOrEqual(1);

@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import type { Provider } from "../providers/index.ts";
-import type { PairScheme, PairVerdict, PairwiseJudgment, RubricJudgment, Sample } from "../types.ts";
+import type { ModelDef, PairScheme, PairVerdict, PairwiseJudgment, RubricJudgment, Sample } from "../types.ts";
 import { readJson, sha256, writeJson } from "../util/fs.ts";
 import {
   JUDGE_SYSTEM,
@@ -31,6 +31,12 @@ export function contextHashOf(source: SourceInfo): string {
   return sha256("context", source.title, source.audience ?? DEFAULT_AUDIENCE);
 }
 
+/** 判定モデルの具体的な設定のハッシュ。id が同じでも provider / model / baseUrl などを変えたら別の判定者として扱う */
+export function judgeConfigHashOf(model: ModelDef): string {
+  const { id: _id, label: _label, ...config } = model;
+  return sha256("judge-config", JSON.stringify(config));
+}
+
 /** 同じキーの判定が同時に走ったとき、2 回目以降は 1 回目の Promise を共有する（ディスクキャッシュに書かれる前の重複呼び出しを防ぐ） */
 const inflight = new Map<string, Promise<unknown>>();
 
@@ -51,8 +57,10 @@ function cached<T>(cacheDir: string | undefined, key: string, compute: () => Pro
 
 export async function judgeRubric(sample: Sample, source: SourceInfo, opts: JudgeOptions): Promise<RubricJudgment> {
   const judgeModel = opts.provider.model.id;
+  const judgeConfigHash = judgeConfigHashOf(opts.provider.model);
   const audience = source.audience ?? DEFAULT_AUDIENCE;
-  const key = sha256("rubric", judgeModel, RUBRIC_PROMPT_VERSION, source.title, audience, sample.text);
+  // キャッシュキーは判定者の具体的な設定で切る（同じ id で設定を変えたら再判定）
+  const key = sha256("rubric", judgeConfigHash, RUBRIC_PROMPT_VERSION, source.title, audience, sample.text);
   const value = await cached(opts.cacheDir, key, async () => {
     const { value } = await opts.provider.generateJson(
       { system: JUDGE_SYSTEM, prompt: rubricPrompt({ text: sample.text, taskTitle: source.title, audience }), purpose: "judge" },
@@ -67,6 +75,7 @@ export async function judgeRubric(sample: Sample, source: SourceInfo, opts: Judg
     sampleId: sample.id,
     textHash: sha256(sample.text),
     contextHash: contextHashOf(source),
+    judgeConfigHash,
     judgeModel,
     promptVersion: RUBRIC_PROMPT_VERSION,
     scores,
@@ -93,9 +102,10 @@ export async function judgePairwise(
   opts: JudgeOptions,
 ): Promise<PairwiseJudgment> {
   const judgeModel = opts.provider.model.id;
+  const judgeConfigHash = judgeConfigHashOf(opts.provider.model);
   const audience = source.audience ?? DEFAULT_AUDIENCE;
   const ask = async (first: string, second: string) => {
-    const key = sha256("pairwise", judgeModel, PAIRWISE_PROMPT_VERSION, source.title, audience, first, second);
+    const key = sha256("pairwise", judgeConfigHash, PAIRWISE_PROMPT_VERSION, source.title, audience, first, second);
     return cached(opts.cacheDir, key, async () => {
       const { value } = await opts.provider.generateJson(
         { system: JUDGE_SYSTEM, prompt: pairwisePrompt({ a: first, b: second, taskTitle: source.title, audience }), purpose: "judge" },
@@ -117,6 +127,7 @@ export async function judgePairwise(
     aTextHash: sha256(a.text),
     bTextHash: sha256(b.text),
     contextHash: contextHashOf(source),
+    judgeConfigHash,
     judgeModel,
     promptVersion: PAIRWISE_PROMPT_VERSION,
     verdictAB,

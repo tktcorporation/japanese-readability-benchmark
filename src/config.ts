@@ -151,6 +151,14 @@ export function loadInterventions(dir = repoPath("interventions")): Intervention
   );
 }
 
+/** タスクとコーパスをまとめて読む。サンプル id は source id だけで区別するので、両方にまたがって重複を禁じる */
+export function loadAllSources(): { tasks: TaskDef[]; corpus: CorpusDoc[] } {
+  const tasks = loadTasks();
+  const corpus = loadCorpus();
+  assertUniqueIds([...tasks, ...corpus], "タスク/コーパス");
+  return { tasks, corpus };
+}
+
 export function pick<T extends { id: string }>(all: T[], ids: string[] | undefined, kind: string): T[] {
   if (!ids || ids.length === 0) return all;
   return ids.map((id) => {

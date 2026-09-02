@@ -77,24 +77,35 @@ describe("store", () => {
     expect(loadSamples(file).find((s) => s.id === "b")?.error).toBe("API error");
   });
 
-  it("タスクのプロンプトやコーパスの原文が編集・削除されたらサンプルを捨てる", () => {
-    const file = join(dir, "sources.jsonl");
-    const doc = "原文。";
-    const prompt = "書いて。";
-    const orig = { ...sample("c__none__baseline__0", doc), sourceType: "corpus" as const, sourceId: "c", inputHash: sha256(doc) };
-    const rw = { ...sample("c__m__rewrite-pass__0", "書き直し。"), sourceType: "corpus" as const, sourceId: "c", inputHash: sha256(doc) };
-    const legacy = { ...sample("c__none__textlint-fix__0", "修正。"), sourceType: "corpus" as const, sourceId: "c" }; // inputHash なし
-    const task = { ...sample("t__m__baseline__0", "生成。"), sourceId: "t", inputHash: sha256(prompt) };
+  it("入力・モデル設定・介入定義のどれかが変わったセルのサンプルは捨てる（provenanceHashes を渡したとき）", () => {
+    const file = join(dir, "provenance.jsonl");
+    const orig = { ...sample("c__none__baseline__0", "原文。"), sourceType: "corpus" as const, sourceId: "c", modelId: "none", interventionId: "baseline", inputHash: "p-orig" };
+    const rw = { ...sample("c__m__rewrite-pass__0", "書き直し。"), sourceType: "corpus" as const, sourceId: "c", interventionId: "rewrite-pass", inputHash: "p-rw" };
+    const legacy = { ...sample("c__none__textlint-fix__0", "修正。"), sourceType: "corpus" as const, sourceId: "c", modelId: "none", interventionId: "textlint-fix" }; // inputHash なし
+    const task = { ...sample("t__m__baseline__0", "生成。"), sourceId: "t", interventionId: "baseline", inputHash: "p-task" };
     for (const s of [orig, rw, legacy, task]) appendJsonl(file, s);
-    expect(loadSamples(file)).toHaveLength(4); // sourceHashes を渡さなければ検査しない
-    const current = new Map([["c", sha256(doc)], ["t", sha256(prompt)]]);
-    expect(loadSamples(file, { sourceHashes: current }).map((s) => s.id)).toEqual([orig.id, rw.id, task.id]);
-    // プロンプトを編集
-    expect(loadSamples(file, { sourceHashes: new Map([["c", sha256(doc)], ["t", sha256("別の指示。")]]) }).map((s) => s.id)).toEqual([orig.id, rw.id]);
-    // 原文を編集
-    expect(loadSamples(file, { sourceHashes: new Map([["c", sha256("編集した原文。")], ["t", sha256(prompt)]]) }).map((s) => s.id)).toEqual([task.id]);
+    expect(loadSamples(file)).toHaveLength(4); // provenanceHashes を渡さなければ検査しない
+    const current = new Map([["c|none|baseline", "p-orig"], ["c|m|rewrite-pass", "p-rw"], ["t|m|baseline", "p-task"]]);
+    expect(loadSamples(file, { provenanceHashes: current }).map((s) => s.id)).toEqual([orig.id, rw.id, task.id]);
+    // タスクのプロンプト（またはモデル設定・介入定義）が変わった
+    expect(loadSamples(file, { provenanceHashes: new Map([...current, ["t|m|baseline", "p-task-v2"]]) }).map((s) => s.id)).toEqual([orig.id, rw.id]);
+    // コーパスの原文が変わった（そのコーパスの全セルが変わる）
+    expect(loadSamples(file, { provenanceHashes: new Map([["c|none|baseline", "x"], ["c|m|rewrite-pass", "y"], ["t|m|baseline", "p-task"]]) }).map((s) => s.id)).toEqual([task.id]);
     // 定義が消えた
-    expect(loadSamples(file, { sourceHashes: new Map() })).toEqual([]);
+    expect(loadSamples(file, { provenanceHashes: new Map() })).toEqual([]);
+  });
+
+  it("判定モデルの設定が変わった判定は捨てる（judgeConfigHashes を渡したとき）", () => {
+    const sFile = join(dir, "jc-samples.jsonl");
+    const jFile = join(dir, "jc-judgments.jsonl");
+    const a = sample("a", "本文A。");
+    appendJsonl(sFile, a);
+    appendJsonl(jFile, { ...rubric("a", sha256(a.text), 3), judgeConfigHash: "cfg-v1" });
+    appendJsonl(jFile, rubric("a", sha256(a.text), 4, "j2")); // judgeConfigHash なし
+    const samples = loadSamples(sFile);
+    expect(loadJudgments(jFile, samples)).toHaveLength(2);
+    expect(loadJudgments(jFile, samples, { judgeConfigHashes: new Map([["j", "cfg-v1"], ["j2", "cfg-x"]]) })).toHaveLength(1);
+    expect(loadJudgments(jFile, samples, { judgeConfigHashes: new Map([["j", "cfg-v2"]]) })).toHaveLength(0);
   });
 
   it("課題名・想定読者が変わった判定は捨てる（contextHashes を渡したとき）", () => {

@@ -99,7 +99,8 @@ export function createHumanEvalServer(opts: ServeOptions) {
         return;
       }
       if (req.method === "GET" && url.pathname === "/api/stats") {
-        const votes = readJsonl<HumanVote>(opts.votesFile);
+        // 現在のペアへの投票だけを数える（作り直す前の古いペアへの投票は含めない）
+        const votes = readJsonl<HumanVote>(opts.votesFile).filter((v) => byId.has(v.pairId));
         json(res, 200, { pairs: pairs.length, votes: votes.length, raters: new Set(votes.map((v) => v.raterId)).size });
         return;
       }

@@ -17,9 +17,50 @@ export function corpusSource(c: CorpusDoc): Source {
   return { type: "corpus", id: c.id, title: c.title, text: c.text, audience: c.audience };
 }
 
-/** 入力（タスクならプロンプト、コーパスなら原文）のハッシュ。サンプルの鮮度判定に使う */
+/** 入力（タスクならプロンプト、コーパスなら原文）のハッシュ */
 export function sourceHash(source: Source): string {
   return sha256(source.type === "corpus" ? source.text : source.prompt);
+}
+
+/** サンプルの鮮度判定に使うセルのキー（sample id から index を除いたもの） */
+export function cellKey(sourceId: string, modelId: string, interventionId: string): string {
+  return `${sourceId}|${modelId}|${interventionId}`;
+}
+
+/**
+ * 生成の来歴ハッシュ。次のどれかが変わればサンプルは陳腐化して作り直される:
+ *   入力（プロンプト/原文）、課題名・想定読者（rewrite テンプレートに入る）、
+ *   セルのモデル設定、介入のステップ定義、ステップが参照するプロンプトファイルの内容、
+ *   rewrite ステップが明示するモデルの設定
+ */
+export function provenanceHash(source: Source, model: ModelDef | undefined, intervention: InterventionDef, allModels: ModelDef[]): string {
+  const modelById = new Map(allModels.map((m) => [m.id, m]));
+  const steps = intervention.steps.map((step) => {
+    switch (step.type) {
+      case "generate":
+        return { ...step, systemContent: step.system ? readText(resolve(intervention.dir, step.system)) : undefined };
+      case "rewrite":
+        return {
+          ...step,
+          promptContent: readText(resolve(intervention.dir, step.prompt)),
+          modelConfig: step.model ? (modelById.get(step.model) ?? null) : undefined,
+        };
+      case "textlint-fix":
+        return { ...step, configContent: step.config ? readText(resolve(intervention.dir, step.config)) : undefined };
+      default:
+        return step;
+    }
+  });
+  return sha256(
+    "provenance",
+    JSON.stringify({
+      source: sourceHash(source),
+      title: source.title,
+      audience: source.audience ?? "一般的な読者",
+      model: model ?? null,
+      steps,
+    }),
+  );
 }
 
 export interface RunOptions {
@@ -133,7 +174,7 @@ export async function runCell(
     text: "",
     steps: [],
     createdAt: new Date().toISOString(),
-    inputHash: sourceHash(source),
+    inputHash: provenanceHash(source, model, intervention, opts.allModels),
   };
   const audience = source.audience ?? "一般的な読者";
   let text: string | undefined = source.type === "corpus" ? source.text : undefined;

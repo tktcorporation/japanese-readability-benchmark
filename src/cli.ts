@@ -1,14 +1,14 @@
 #!/usr/bin/env -S node --import tsx
 import { existsSync } from "node:fs";
 import { Command } from "commander";
-import { loadCorpus, loadInterventions, loadModels, loadTasks, parseList, pick } from "./config.ts";
+import { loadAllSources, loadCorpus, loadInterventions, loadModels, loadTasks, parseList, pick } from "./config.ts";
 import { summarizeVotes } from "./human/aggregate.ts";
 import { buildHumanPairs } from "./human/pairs.ts";
 import { createHumanEvalServer } from "./human/server.ts";
-import { buildPairs, contextHashOf, judgePairwise, judgeRubric, type SourceInfo } from "./judge/index.ts";
+import { buildPairs, contextHashOf, judgeConfigHashOf, judgePairwise, judgeRubric, type SourceInfo } from "./judge/index.ts";
 import { scoreSample } from "./metrics/index.ts";
 import { PAIRWISE_PROMPT_VERSION, RUBRIC_PROMPT_VERSION } from "./judge/prompts.ts";
-import { corpusSource, dependentsOf, needsModelForCorpus, reuseLevels, runCell, sampleId, sourceHash, taskSource, type Source } from "./pipeline/run.ts";
+import { cellKey, corpusSource, dependentsOf, needsModelForCorpus, provenanceHash, reuseLevels, runCell, sampleId, taskSource, type Source } from "./pipeline/run.ts";
 import { createProvider } from "./providers/index.ts";
 import { aggregate } from "./report/aggregate.ts";
 import { renderMarkdown } from "./report/markdown.ts";
@@ -55,17 +55,29 @@ function files(runId: string) {
   };
 }
 
-/** 現在の入力ハッシュ（タスクはプロンプト、コーパスは原文） */
-function sourceHashes(): Map<string, string> {
-  return new Map([
-    ...loadTasks().map((t): [string, string] => [t.id, sourceHash(taskSource(t))]),
-    ...loadCorpus().map((c): [string, string] => [c.id, sourceHash(corpusSource(c))]),
-  ]);
+/**
+ * 現在の定義から、すべてのセル（source × model × intervention、モデルなしの "none" も含む）の
+ * 生成来歴ハッシュを計算する。サンプルの鮮度判定に使う
+ */
+function provenanceHashes(): Map<string, string> {
+  const { tasks, corpus } = loadAllSources();
+  const { models } = loadModels();
+  const interventions = loadInterventions();
+  const sources: Source[] = [...tasks.map(taskSource), ...corpus.map(corpusSource)];
+  const map = new Map<string, string>();
+  for (const source of sources) {
+    for (const intervention of interventions) {
+      for (const model of [undefined, ...models]) {
+        map.set(cellKey(source.id, model?.id ?? "none", intervention.id), provenanceHash(source, model, intervention, models));
+      }
+    }
+  }
+  return map;
 }
 
-/** サンプルを読む。タスクやコーパスの定義が編集・削除されていれば、そのサンプルは陳腐化として除外される */
+/** サンプルを読む。入力・モデル設定・介入定義のどれかが編集・削除されていれば、そのサンプルは陳腐化として除外される */
 function loadSamples(runId: string): Sample[] {
-  return loadSamplesFile(files(runId).samples, { sourceHashes: sourceHashes() });
+  return loadSamplesFile(files(runId).samples, { provenanceHashes: provenanceHashes() });
 }
 
 function parsePositiveInt(name: string, value: string): number {
@@ -80,17 +92,19 @@ function parseNonNegativeInt(name: string, value: string): number {
   return n;
 }
 
-/** 採点・判定を読む。本文が変わったサンプルの記録や、課題名・想定読者が変わった判定は除外される */
+/** 採点・判定を読む。本文が変わったサンプルの記録や、課題名・想定読者・判定モデルの設定が変わった判定は除外される */
 function loadDerived(runId: string, samples: Sample[]) {
   const f = files(runId);
   const contextHashes = new Map(Array.from(sourceInfos().values()).map((s) => [s.id, contextHashOf(s)]));
-  return { scores: loadScores(f.scores, samples), judgments: loadJudgments(f.judgments, samples, { contextHashes }) };
+  const judgeConfigHashes = new Map(loadModels().models.map((m) => [m.id, judgeConfigHashOf(m)]));
+  return { scores: loadScores(f.scores, samples), judgments: loadJudgments(f.judgments, samples, { contextHashes, judgeConfigHashes }) };
 }
 
 function sourceInfos(): Map<string, SourceInfo> {
+  const { tasks, corpus } = loadAllSources();
   const map = new Map<string, SourceInfo>();
-  for (const t of loadTasks()) map.set(t.id, { id: t.id, title: t.title, audience: t.audience });
-  for (const c of loadCorpus()) map.set(c.id, { id: c.id, title: c.title, audience: c.audience });
+  for (const t of tasks) map.set(t.id, { id: t.id, title: t.title, audience: t.audience });
+  for (const c of corpus) map.set(c.id, { id: c.id, title: c.title, audience: c.audience });
   return map;
 }
 
@@ -104,10 +118,11 @@ program
   .description("タスク・コーパス・モデル・介入の一覧")
   .action(() => {
     const { models, judge } = loadModels();
+    const { tasks, corpus } = loadAllSources();
     console.log("## tasks");
-    for (const t of loadTasks()) console.log(`- ${t.id}  [${t.category}] ${t.title}`);
+    for (const t of tasks) console.log(`- ${t.id}  [${t.category}] ${t.title}`);
     console.log("\n## corpus");
-    for (const c of loadCorpus()) console.log(`- ${c.id}  ${c.title} (${c.text.length}字)`);
+    for (const c of corpus) console.log(`- ${c.id}  ${c.title} (${c.text.length}字)`);
     console.log("\n## models");
     for (const m of models) console.log(`- ${m.id}  ${m.provider}:${m.model}${m.label ? `  ${m.label}` : ""}`);
     console.log(`\n## judge\n- ${judge.model}`);
@@ -142,12 +157,13 @@ program
     const lookup = (sourceId: string, modelId: string, interventionId: string, index: number) =>
       store.get(sampleId(sourceId, modelId, interventionId, index));
 
+    const all = loadAllSources();
     let sources: Source[];
     if (o.corpus !== undefined && o.corpus !== false) {
       const ids = typeof o.corpus === "string" ? parseList(o.corpus) : undefined;
-      sources = pick(loadCorpus(), ids, "コーパス").map(corpusSource);
+      sources = pick(all.corpus, ids, "コーパス").map(corpusSource);
     } else {
-      sources = pick(loadTasks(), parseList(o.tasks), "タスク").map(taskSource);
+      sources = pick(all.tasks, parseList(o.tasks), "タスク").map(taskSource);
     }
 
     type Job = { source: Source; model: ModelDef | undefined; intervention: (typeof interventions)[number]; index: number };
@@ -351,8 +367,8 @@ program
       schemes: parseSchemes(o.schemes),
       baselineId: o.baseline,
       sources: sourceInfos(),
-      max: o.max ? Number(o.max) : undefined,
-      seed: Number(o.seed),
+      max: o.max === undefined ? undefined : parsePositiveInt("--max", o.max),
+      seed: parseNonNegativeInt("--seed", o.seed),
     });
     writeJson(f.pairs, pairs);
     log(`${pairs.length} ペア → ${f.pairs}`);
@@ -372,13 +388,14 @@ program
       process.exitCode = 1;
       return;
     }
+    const port = parsePositiveInt("--port", o.port);
     const server = createHumanEvalServer({
       pairsFile: f.pairs,
       votesFile: f.votes,
-      port: Number(o.port),
-      perRater: o.perRater ? Number(o.perRater) : undefined,
+      port,
+      perRater: o.perRater === undefined ? undefined : parsePositiveInt("--per-rater", o.perRater),
     });
-    server.listen(Number(o.port), () => log(`http://localhost:${o.port}/  （Ctrl+C で終了）`));
+    server.listen(port, () => log(`http://localhost:${port}/  （Ctrl+C で終了）`));
   });
 
 // ---------------------------------------------------------------------------
