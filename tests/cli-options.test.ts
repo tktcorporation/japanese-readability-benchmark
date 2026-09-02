@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseList } from "../src/config.ts";
+import { parseList, parseSchemes } from "../src/config.ts";
 import { parseFixture } from "../src/providers/mock.ts";
 import { assertRunId } from "../src/util/run-id.ts";
 
@@ -10,6 +10,11 @@ describe("CLI オプションの検証", () => {
     expect(() => parseList(",")).toThrow("空");
     expect(() => parseList("   ")).toThrow("空");
     expect(() => parseList("")).toThrow("空");
+  });
+  it("parseSchemes は不正な値を拒み、重複をまとめる", () => {
+    expect(parseSchemes("interventions,models")).toEqual(["interventions", "models"]);
+    expect(parseSchemes("interventions,interventions,models")).toEqual(["interventions", "models"]);
+    expect(() => parseSchemes("interventions,human")).toThrow('"human"');
   });
   it("run id は results/runs の外に出られない", () => {
     for (const ok of ["demo", "2026-09", "run_1.a"]) expect(assertRunId(ok)).toBe(ok);

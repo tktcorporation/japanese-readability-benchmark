@@ -2,7 +2,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
-import type { CorpusDoc, InterventionDef, ModelDef, StepDef, TaskDef } from "./types.ts";
+import type { CorpusDoc, InterventionDef, ModelDef, PairScheme, StepDef, TaskDef } from "./types.ts";
 import { readText, repoPath } from "./util/fs.ts";
 
 /**
@@ -217,6 +217,19 @@ export function pick<T extends { id: string }>(all: T[], ids: string[] | undefin
  * カンマ区切りの id リストを読む。省略時は undefined（＝全部）。
  * 明示的に渡されたのに中身が空（`','` や空白だけ）なら、「全部」と解釈せずエラーにする
  */
+export const PAIR_SCHEMES: readonly PairScheme[] = ["interventions", "models"];
+
+/** --schemes の値。不正な値はエラー、重複は 1 つにまとめる（同じペアを二重に作らない） */
+export function parseSchemes(value: string): PairScheme[] {
+  const list = parseList(value) ?? [];
+  for (const s of list) {
+    if (!(PAIR_SCHEMES as readonly string[]).includes(s)) {
+      throw new Error(`--schemes "${s}" は不正です。候補: ${PAIR_SCHEMES.join(", ")}`);
+    }
+  }
+  return Array.from(new Set(list)) as PairScheme[];
+}
+
 export function parseList(value: string | undefined): string[] | undefined {
   if (value === undefined) return undefined;
   const list = value

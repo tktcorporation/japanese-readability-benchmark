@@ -1,9 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, describe, expect, it } from "vitest";
 import { loadModels } from "../src/config.ts";
 import { buildPairs, combineVerdicts, contextHashOf, flipVerdict, judgeConfigHashOf, judgePairwise, judgeRubric } from "../src/judge/index.ts";
 import { createProvider } from "../src/providers/index.ts";
 import { loadFixture } from "../src/providers/mock.ts";
 import type { Sample } from "../src/types.ts";
+import type { Provider } from "../src/providers/index.ts";
 
 const { models } = loadModels();
 const judge = createProvider(models.find((m) => m.id === "mock-plain")!);
@@ -23,6 +27,39 @@ function sample(over: Partial<Sample>): Sample {
     ...over,
   };
 }
+
+describe("判定のキャッシュ", () => {
+  const cacheRoot = mkdtempSync(join(tmpdir(), "jrb-judge-cache-"));
+  afterAll(() => rmSync(cacheRoot, { recursive: true, force: true }));
+  const counting = (): Provider & { calls: number } => {
+    const p = {
+      model: judge.model,
+      calls: 0,
+      generate: (req: Parameters<Provider["generate"]>[0]) => judge.generate(req),
+      generateJson: <T>(...args: Parameters<Provider["generateJson"]>) => {
+        p.calls += 1;
+        return judge.generateJson(...args) as Promise<{ value: T; raw: Awaited<ReturnType<Provider["generate"]>> }>;
+      },
+    };
+    return p;
+  };
+  const s = sample({ text: loadFixture("plain").get("oauth-explain")! });
+  const src = { id: "oauth-explain", title: "題" };
+  it("キャッシュありなら同じ入力の同時判定は 1 回にまとめ、2 回目以降はディスクから返す", async () => {
+    const provider = counting();
+    const cacheDir = join(cacheRoot, "on");
+    await Promise.all([judgeRubric(s, src, { provider, cacheDir }), judgeRubric(s, src, { provider, cacheDir })]);
+    expect(provider.calls).toBe(1);
+    await judgeRubric(s, src, { provider, cacheDir });
+    expect(provider.calls).toBe(1);
+  });
+  it("キャッシュなし（--no-cache）なら同じ入力でも毎回独立に判定する", async () => {
+    const provider = counting();
+    await Promise.all([judgeRubric(s, src, { provider }), judgeRubric(s, src, { provider })]);
+    await judgeRubric(s, src, { provider });
+    expect(provider.calls).toBe(3);
+  });
+});
 
 describe("verdict の統合", () => {
   it("両順序で一致すればその判定、食い違えば tie", () => {
@@ -93,7 +130,8 @@ describe("mock judge", () => {
       expect(v).toBeLessThanOrEqual(5);
     }
   });
-  it("同じ入力の判定が同時に走っても判定モデルは 1 回しか呼ばれない", async () => {
+  it("キャッシュありなら、同じ入力の判定が同時に走っても判定モデルは 1 回しか呼ばれない", async () => {
+    const cacheDir = mkdtempSync(join(tmpdir(), "jrb-judge-inflight-"));
     let calls = 0;
     const counting = {
       model: judge.model,
@@ -105,12 +143,21 @@ describe("mock judge", () => {
       },
     };
     const twin = { ...plain, id: "p2" }; // 本文が同じ別サンプル
-    const j = await judgePairwise(plain, twin, { id: "same", title: "同一" }, "interventions", { provider: counting });
-    expect(j.verdict).toBe("tie");
-    expect(calls).toBe(1); // A先・B先のキーが同じなので 1 回に束ねられる
-    calls = 0;
-    await Promise.all([judgeRubric(plain, { id: "same", title: "同一" }, { provider: counting }), judgeRubric(twin, { id: "same", title: "同一" }, { provider: counting })]);
-    expect(calls).toBe(1);
+    try {
+      const j = await judgePairwise(plain, twin, { id: "same", title: "同一" }, "interventions", { provider: counting, cacheDir });
+      expect(j.verdict).toBe("tie");
+      expect(calls).toBe(1); // A先・B先のキーが同じなので 1 回に束ねられる
+      calls = 0;
+      await Promise.all([judgeRubric(plain, { id: "same", title: "同一" }, { provider: counting, cacheDir }), judgeRubric(twin, { id: "same", title: "同一" }, { provider: counting, cacheDir })]);
+      expect(calls).toBe(1);
+      // キャッシュなしなら束ねない（同じ入力でも独立した判定）
+      calls = 0;
+      const j2 = await judgePairwise(plain, twin, { id: "same", title: "同一" }, "interventions", { provider: counting });
+      expect(j2.verdict).toBe("tie");
+      expect(calls).toBe(2);
+    } finally {
+      rmSync(cacheDir, { recursive: true, force: true });
+    }
   });
   it("pairwise は順序を入れ替えても同じ勝者を返す", async () => {
     const j = await judgePairwise(plain, verbose, src, "models", { provider: judge });

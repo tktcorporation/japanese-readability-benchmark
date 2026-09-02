@@ -41,13 +41,15 @@ export function judgeConfigHashOf(model: ModelDef): string {
 const inflight = new Map<string, Promise<unknown>>();
 
 function cached<T>(cacheDir: string | undefined, key: string, compute: () => Promise<T>): Promise<T> {
-  const file = cacheDir ? `${cacheDir}/${key}.json` : undefined;
-  if (file && existsSync(file)) return Promise.resolve(readJson<T>(file));
+  // キャッシュなし（--no-cache）のときは同時実行の共有もしない。同じ入力でも独立した判定を得たいという指定なので
+  if (!cacheDir) return compute();
+  const file = `${cacheDir}/${key}.json`;
+  if (existsSync(file)) return Promise.resolve(readJson<T>(file));
   const pending = inflight.get(key);
   if (pending) return pending as Promise<T>;
   const p = compute()
     .then((v) => {
-      if (file) writeJson(file, v);
+      writeJson(file, v);
       return v;
     })
     .finally(() => inflight.delete(key));

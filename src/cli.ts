@@ -1,7 +1,7 @@
 #!/usr/bin/env -S node --import tsx
 import { existsSync } from "node:fs";
 import { Command } from "commander";
-import { assertRewriteModels, loadAllSources, loadCorpus, loadInterventions, loadModels, loadTasks, parseList, pick } from "./config.ts";
+import { assertRewriteModels, loadAllSources, loadCorpus, loadInterventions, loadModels, loadTasks, parseList, parseSchemes, pick } from "./config.ts";
 import { summarizeVotes } from "./human/aggregate.ts";
 import { buildHumanPairs } from "./human/pairs.ts";
 import { createHumanEvalServer } from "./human/server.ts";
@@ -14,7 +14,7 @@ import { createProvider } from "./providers/index.ts";
 import { aggregate } from "./report/aggregate.ts";
 import { renderMarkdown } from "./report/markdown.ts";
 import { loadJudgments, loadSamples as loadSamplesFile, loadScores, persistedSampleIds } from "./store.ts";
-import type { HumanPair, HumanVote, ModelDef, PairScheme, PairwiseJudgment, RubricJudgment, Sample } from "./types.ts";
+import type { HumanPair, HumanVote, ModelDef, PairwiseJudgment, RubricJudgment, Sample } from "./types.ts";
 import { mapLimit } from "./util/async.ts";
 import { loadDotenv } from "./util/env.ts";
 import { assertRunId } from "./util/run-id.ts";
@@ -26,17 +26,6 @@ loadDotenv(repoPath(".env"));
 const program = new Command();
 program.name("bench").description("LLM が出力する日本語の読みやすさを評価するベンチマーク");
 
-const PAIR_SCHEMES: readonly PairScheme[] = ["interventions", "models"];
-
-function parseSchemes(value: string): PairScheme[] {
-  const list = parseList(value) ?? [];
-  for (const s of list) {
-    if (!(PAIR_SCHEMES as readonly string[]).includes(s)) {
-      throw new Error(`--schemes "${s}" は不正です。候補: ${PAIR_SCHEMES.join(", ")}`);
-    }
-  }
-  return list as PairScheme[];
-}
 
 function runDir(runId: string): string {
   return repoPath("results", "runs", assertRunId(runId));
