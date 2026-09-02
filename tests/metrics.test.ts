@@ -1,0 +1,73 @@
+import { describe, expect, it } from "vitest";
+import { splitSentences, stripMarkdown } from "../src/metrics/sentences.ts";
+import { surfaceMetrics } from "../src/metrics/surface.ts";
+import { fixText, lintText } from "../src/metrics/textlint.ts";
+import { loadFixture } from "../src/providers/mock.ts";
+
+const PLAIN = loadFixture("plain").get("oauth-explain")!;
+const VERBOSE = loadFixture("verbose").get("oauth-explain")!;
+
+describe("splitSentences", () => {
+  it("句点・感嘆符・疑問符で区切る", () => {
+    expect(splitSentences("これは文です。これも文です！これは？最後")).toEqual(["これは文です。", "これも文です！", "これは？", "最後"]);
+  });
+  it("閉じ括弧が続く場合は括弧まで含める", () => {
+    expect(splitSentences("「はい。」と言った。")).toEqual(["「はい。」", "と言った。"]);
+  });
+  it("Markdown の見出し・箇条書き・コードブロックを除く", () => {
+    const md = "# 見出し\n\n- 項目一です。\n- 項目二です。\n\n```\nconst x = 1;\n```\n\n本文です。";
+    expect(stripMarkdown(md)).not.toContain("const x");
+    expect(splitSentences(md)).toEqual(["見出し", "項目一です。", "項目二です。", "本文です。"]);
+  });
+});
+
+describe("surfaceMetrics", () => {
+  it("冗長な文章は平均文長が長く jReadability が低い", async () => {
+    const plain = await surfaceMetrics(PLAIN);
+    const verbose = await surfaceMetrics(VERBOSE);
+    expect(plain.sentences).toBeGreaterThan(5);
+    expect(verbose.meanSentenceLength).toBeGreaterThan(plain.meanSentenceLength * 2);
+    expect(verbose.longSentenceRatio).toBeGreaterThan(plain.longSentenceRatio);
+    expect(verbose.jreadability).toBeLessThan(plain.jreadability);
+    expect(verbose.nominalizationPer1k).toBeGreaterThan(plain.nominalizationPer1k);
+  });
+  it("文字種の割合は合計 1 以下で、漢字率は妥当な範囲", async () => {
+    const m = await surfaceMetrics(PLAIN);
+    expect(m.kanjiRatio + m.hiraganaRatio + m.katakanaRatio + m.latinRatio).toBeLessThanOrEqual(1);
+    expect(m.kanjiRatio).toBeGreaterThan(0.15);
+    expect(m.kanjiRatio).toBeLessThan(0.5);
+    expect(m.listLines).toBeGreaterThan(0);
+    expect(m.headings).toBe(1);
+  });
+  it("語種の割合は 0-1 で、和語 + 漢語は 1 以下", async () => {
+    const m = await surfaceMetrics("私は東京で会議に出席した。データベースを確認する。");
+    expect(m.kangoRatio).toBeGreaterThan(0);
+    expect(m.wagoRatio).toBeGreaterThan(0);
+    expect(m.kangoRatio + m.wagoRatio).toBeLessThanOrEqual(1);
+    expect(m.particleRatio).toBeGreaterThan(0);
+    expect(m.verbRatio).toBeGreaterThan(0);
+  });
+  it("空文字でも落ちない", async () => {
+    const m = await surfaceMetrics("");
+    expect(m.sentences).toBe(0);
+    expect(m.meanSentenceLength).toBe(0);
+  });
+});
+
+describe("textlint", () => {
+  it("読点が多い・助詞が重なる文を検出する", async () => {
+    const r = await lintText("本システムにおいては、ユーザーがログインした際に、セッションが生成されるが、この際に、トークンの検証が行われないケースが存在するため、注意が必要である。");
+    expect(r.count).toBeGreaterThan(0);
+    expect(Object.keys(r.rules).some((k) => k.includes("max-ten"))).toBe(true);
+    expect(r.per1k).toBeGreaterThan(0);
+  });
+  it("冗長な文章のほうが違反密度が高い", async () => {
+    const [p, v] = await Promise.all([lintText(PLAIN), lintText(VERBOSE)]);
+    expect(v.per1k).toBeGreaterThan(p.per1k);
+  });
+  it("fixText は文字列を返し、適用数を報告する", async () => {
+    const r = await fixText("これはテストです。これもテストです。");
+    expect(typeof r.output).toBe("string");
+    expect(r.applied).toBeGreaterThanOrEqual(0);
+  });
+});

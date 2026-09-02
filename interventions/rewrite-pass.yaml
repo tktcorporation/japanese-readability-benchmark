@@ -1,0 +1,10 @@
+id: rewrite-pass
+name: LLM による書き直しパス
+description: >-
+  素の出力を、prompts/rewrite.md の指示で同じモデルに書き直させる。
+  「書いてから推敲する」二段構えの効果を測る。
+  コーパス起点のときは原文をそのまま書き直す（--models で書き直しモデルを指定）。
+steps:
+  - type: generate
+  - type: rewrite
+    prompt: prompts/rewrite.md

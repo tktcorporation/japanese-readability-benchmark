@@ -1,0 +1,9 @@
+id: style-prompt+textlint
+name: ルール指示 + textlint --fix
+description: >-
+  システムプロンプトで文章ルールを指示したうえで、textlint の自動修正をかける。
+  「ルール + lint」という現実的な運用に近い構成。
+steps:
+  - type: generate
+    system: prompts/style-guide.md
+  - type: textlint-fix

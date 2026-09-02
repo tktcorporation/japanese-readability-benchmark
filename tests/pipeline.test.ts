@@ -1,0 +1,80 @@
+import { describe, expect, it } from "vitest";
+import { loadCorpus, loadInterventions, loadModels, loadTasks, parseCorpusDoc } from "../src/config.ts";
+import { surfaceMetrics } from "../src/metrics/surface.ts";
+import { corpusSource, needsModelForCorpus, renderTemplate, runCell, sampleId, taskSource } from "../src/pipeline/run.ts";
+
+const { models } = loadModels();
+const interventions = loadInterventions();
+const byId = (id: string) => interventions.find((i) => i.id === id)!;
+const mockVerbose = models.find((m) => m.id === "mock-verbose")!;
+const task = taskSource(loadTasks()[0]!);
+
+describe("config", () => {
+  it("リポジトリ内の定義がすべて読み込める", () => {
+    expect(loadTasks().length).toBeGreaterThanOrEqual(8);
+    expect(loadCorpus().length).toBeGreaterThanOrEqual(3);
+    expect(models.length).toBeGreaterThan(2);
+    expect(interventions.map((i) => i.id)).toContain("baseline");
+    // id の重複がない
+    for (const list of [loadTasks(), loadCorpus(), models, interventions]) {
+      expect(new Set(list.map((x) => x.id)).size).toBe(list.length);
+    }
+  });
+  it("frontmatter 付き Markdown を解釈する", () => {
+    const doc = parseCorpusDoc("---\nid: x\ntitle: タイトル\n---\n本文。", "fallback");
+    expect(doc).toMatchObject({ id: "x", title: "タイトル", text: "本文。" });
+    expect(parseCorpusDoc("本文だけ", "fb")).toMatchObject({ id: "fb", text: "本文だけ" });
+  });
+  it("renderTemplate は {{var}} を展開する", () => {
+    expect(renderTemplate("A {{ text }} B {{audience}} {{none}}", { text: "x", audience: "y" })).toBe("A x B y ");
+  });
+});
+
+describe("runCell (mock)", () => {
+  it("baseline はフィクスチャをそのまま返す", async () => {
+    const s = await runCell(task, mockVerbose, byId("baseline"), 0, { runId: "t", allModels: models });
+    expect(s.error).toBeUndefined();
+    expect(s.id).toBe(sampleId(task.id, "mock-verbose", "baseline", 0));
+    expect(s.text.length).toBeGreaterThan(100);
+    expect(s.steps.map((x) => x.type)).toEqual(["generate"]);
+    expect(s.inputText).toBeUndefined();
+  });
+  it("rewrite-pass は文を短くし、介入前の文章を inputText に残す", async () => {
+    const base = await runCell(task, mockVerbose, byId("baseline"), 0, { runId: "t", allModels: models });
+    const s = await runCell(task, mockVerbose, byId("rewrite-pass"), 0, { runId: "t", allModels: models });
+    expect(s.error).toBeUndefined();
+    expect(s.inputText).toBe(base.text);
+    const [b, a] = await Promise.all([surfaceMetrics(base.text), surfaceMetrics(s.text)]);
+    expect(a.meanSentenceLength).toBeLessThan(b.meanSentenceLength);
+  });
+  it("textlint-fix は applied/remaining を記録する", async () => {
+    const s = await runCell(task, mockVerbose, byId("textlint-fix"), 0, { runId: "t", allModels: models });
+    expect(s.error).toBeUndefined();
+    const fix = s.steps.find((x) => x.type === "textlint-fix")!;
+    expect(fix.applied).toBeGreaterThanOrEqual(0);
+    expect(fix.remaining).toBeGreaterThanOrEqual(0);
+  });
+  it("コーパス起点では generate を飛ばし、原文から始める", async () => {
+    const doc = loadCorpus()[0]!;
+    const corpus = corpusSource(doc);
+    const base = await runCell(corpus, undefined, byId("baseline"), 0, { runId: "t", allModels: models });
+    expect(base.error).toBeUndefined();
+    expect(base.text).toBe(doc.text);
+    expect(base.modelId).toBe("none");
+    expect(base.steps[0]).toMatchObject({ type: "generate", skipped: true });
+
+    const rewritten = await runCell(corpus, mockVerbose, byId("rewrite-pass"), 0, { runId: "t", allModels: models });
+    expect(rewritten.error).toBeUndefined();
+    expect(rewritten.text).not.toBe(doc.text);
+    expect(rewritten.inputText).toBe(doc.text);
+  });
+  it("needsModelForCorpus はモデル未指定の rewrite があるときだけ true", () => {
+    expect(needsModelForCorpus(byId("baseline"))).toBe(false);
+    expect(needsModelForCorpus(byId("textlint-fix"))).toBe(false);
+    expect(needsModelForCorpus(byId("rewrite-pass"))).toBe(true);
+  });
+  it("モデルなしでタスクを実行するとエラーとして記録する", async () => {
+    const s = await runCell(task, undefined, byId("baseline"), 0, { runId: "t", allModels: models });
+    expect(s.error).toContain("モデル");
+  });
+});

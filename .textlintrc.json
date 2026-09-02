@@ -1,0 +1,30 @@
+{
+  "rules": {
+    "preset-ja-technical-writing": {
+      "sentence-length": { "max": 100 },
+      "max-comma": { "max": 3 },
+      "max-ten": { "max": 3 },
+      "max-kanji-continuous-len": { "max": 6 },
+      "no-exclamation-question-mark": false,
+      "ja-no-mixed-period": { "allowPeriodMark": true },
+      "no-doubled-joshi": { "strict": false, "allow": ["も", "や", "か"] },
+      "ja-no-weak-phrase": true,
+      "ja-no-successive-word": true,
+      "ja-no-redundant-expression": true,
+      "no-mix-dearu-desumasu": { "preferInHeader": "", "preferInBody": "ですます", "preferInList": "", "strict": false },
+      "arabic-kanji-numbers": true,
+      "no-doubled-conjunction": true,
+      "no-doubled-conjunctive-particle-ga": true,
+      "no-dropping-the-ra": true,
+      "no-double-negative-ja": true,
+      "no-hankaku-kana": true,
+      "no-nfd": true,
+      "no-invalid-control-character": true,
+      "no-unmatched-pair": true,
+      "ja-unnatural-alphabet": true,
+      "ja-no-abusage": true
+    },
+    "preset-japanese": false
+  },
+  "filters": {}
+}

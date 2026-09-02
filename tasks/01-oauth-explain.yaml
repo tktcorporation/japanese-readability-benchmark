@@ -1,0 +1,10 @@
+id: oauth-explain
+category: tech-explain
+title: OAuth 2.0 の認可コードフローを新人エンジニアに説明する
+audience: Web 開発を始めて半年の新人エンジニア
+tags: [technical, explanation]
+prompt: |
+  OAuth 2.0 の認可コードフロー（Authorization Code Flow）を、Web 開発を始めて半年の新人エンジニアに向けて説明してください。
+  登場する役割（ユーザー、クライアントアプリ、認可サーバー、リソースサーバー）と、
+  認可コードをアクセストークンに交換する流れ、そしてなぜアクセストークンを直接返さないのかを含めてください。
+  600〜900 文字程度の日本語で書いてください。

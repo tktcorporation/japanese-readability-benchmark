@@ -1,0 +1,14 @@
+node_modules/
+.env
+.env.local
+
+# 実行結果（サンプル run だけをコミットする）
+results/runs/*
+!results/runs/sample/
+results/cache/
+
+# 人手評価の投票（個人が特定されうるので既定では除外）
+results/runs/*/votes.jsonl
+
+*.log
+.DS_Store
