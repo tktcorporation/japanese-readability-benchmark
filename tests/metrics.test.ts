@@ -74,6 +74,10 @@ describe("removeCodeBlocks", () => {
     const plain = removeCodeBlocks(md);
     expect(plain).not.toMatch(/const x|indented code|more code|still code|unclosed code/);
     expect(splitSentences(md)).toEqual(["本文一です。", "本文二です。", "項目です。", "ネストの項目です。", "本文三です。"]);
+    // 引用の中のフェンス・インデントコードも落とす
+    const quoted = "> 引用です。\n> ```js\n> const y = 2;\n> ```\n> 続きです。\n>\n>     quoted code\n> 最後です。";
+    expect(removeCodeBlocks(quoted)).not.toMatch(/const y|quoted code/);
+    expect(splitSentences(quoted)).toEqual(["引用です。", "続きです。", "最後です。"]);
     expect(stripMarkdown("   ```\nコード\n```\n本文。")).not.toContain("コード"); // 行頭 0〜3 スペースはフェンス
     expect(stripMarkdown("行頭 ```\nコード\n```\n本文。")).toContain("コード"); // 行の途中の ``` はフェンスではない
   });
