@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import type { Sample, ScoreRecord } from "../types.ts";
-import { installedVersion, readText, repoPath, sha256 } from "../util/fs.ts";
+import { installedClosure, readText, repoPath, sha256 } from "../util/fs.ts";
 import { surfaceMetrics } from "./surface.ts";
 import { lintText, textlintToolchain } from "./textlint.ts";
 
@@ -21,7 +21,7 @@ const SURFACE_PACKAGES = ["kuromojin"];
 export function scoringHashOf(textlintConfig = repoPath(".textlintrc.json")): string {
   const config = existsSync(textlintConfig) ? readText(textlintConfig) : "";
   // textlint 本体と、設定で有効にしているルール・フィルタすべての版を含める（設定から動的に求める）
-  return sha256("scoring", METRICS_VERSION, config, ...textlintToolchain(config), ...SURFACE_PACKAGES.map((p) => `${p}@${installedVersion(p)}`));
+  return sha256("scoring", METRICS_VERSION, config, ...textlintToolchain(config), ...installedClosure(SURFACE_PACKAGES));
 }
 
 /**

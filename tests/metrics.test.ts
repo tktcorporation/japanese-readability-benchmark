@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { METRICS_VERSION, scoreSample, scoringHashOf } from "../src/metrics/index.ts";
-import { installedVersion, sha256 } from "../src/util/fs.ts";
+import { installedClosure, installedVersion, sha256 } from "../src/util/fs.ts";
 import { surfaceMetrics } from "../src/metrics/surface.ts";
 import { fixText, lintText, textlintPackagesOf, textlintToolchain } from "../src/metrics/textlint.ts";
 import { loadFixture } from "../src/providers/mock.ts";
@@ -30,7 +30,11 @@ describe("textlint の来歴", () => {
     const toolchain = textlintToolchain(readFileSync(join(process.cwd(), ".textlintrc.json"), "utf8"));
     expect(toolchain.find((t) => t.startsWith("textlint@"))).toMatch(/^textlint@\d+\./);
     expect(toolchain.find((t) => t.startsWith("textlint-rule-preset-ja-technical-writing@"))).toMatch(/@\d+\./);
+    // プリセットが委譲している個々のルールと、その依存（形態素解析など）も推移的に含む
+    expect(toolchain.find((t) => t.startsWith("textlint-rule-sentence-length@"))).toMatch(/@\d+\./);
+    expect(toolchain.find((t) => t.startsWith("kuromojin@"))).toMatch(/@\d+\./);
     expect(toolchain.find((t) => t.startsWith("textlint-rule-no-todo@"))).toBeUndefined();
+    expect(installedClosure(["no-such-package-xyz"])).toEqual(["no-such-package-xyz@missing"]);
   });
 });
 
@@ -217,7 +221,7 @@ describe("採点設定のハッシュ", () => {
     expect(rec.scoringHash).toBe(base);
     // 設定で有効にしている textlint パッケージすべての版と kuromojin の版を含む
     const config = readFileSync(join(process.cwd(), ".textlintrc.json"), "utf8");
-    expect(base).toBe(sha256("scoring", METRICS_VERSION, config, ...textlintToolchain(config), `kuromojin@${installedVersion("kuromojin")}`));
+    expect(base).toBe(sha256("scoring", METRICS_VERSION, config, ...textlintToolchain(config), ...installedClosure(["kuromojin"])));
   });
 });
 

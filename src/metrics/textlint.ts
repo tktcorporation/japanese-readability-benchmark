@@ -1,6 +1,6 @@
 import { createLinter, loadTextlintrc, type CreateLinterOptions } from "textlint";
 import type { TextlintMessage } from "../types.ts";
-import { installedVersion, repoPath } from "../util/fs.ts";
+import { installedClosure, repoPath } from "../util/fs.ts";
 import { stripMarkdown } from "./sentences.ts";
 
 type Linter = ReturnType<typeof createLinter>;
@@ -31,9 +31,12 @@ export function textlintPackagesOf(configContent: string): string[] {
   return Array.from(new Set(["textlint", ...rules, ...filters])).sort();
 }
 
-/** textlint-fix の来歴に含める「実装の版」。設定が同じでも本体やルールを更新したら変わる */
+/**
+ * textlint-fix の来歴に含める「実装の版」。設定が同じでも本体・ルール・プリセットが委譲する個々のルールを更新したら変わる
+ * （有効にしたパッケージの依存を推移的にたどる）
+ */
 export function textlintToolchain(configContent: string): string[] {
-  return textlintPackagesOf(configContent).map((p) => `${p}@${installedVersion(p)}`);
+  return installedClosure(textlintPackagesOf(configContent));
 }
 
 const linters = new Map<string, Promise<Linter>>();
