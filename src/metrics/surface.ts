@@ -91,6 +91,18 @@ function maxRun(text: string, re: RegExp): number {
   return best;
 }
 
+/** Setext 見出し（本文行の直下の ===== / -----）の数。表の区切り行と箇条書きは除く */
+export function setextHeadings(text: string): number {
+  const lines = text.split("\n");
+  let count = 0;
+  for (let i = 1; i < lines.length; i += 1) {
+    const prev = lines[i - 1]!;
+    if (prev.trim() === "" || /^\s*\|/.test(prev) || /^\s*([-*+]|\d+[.)])\s/.test(prev)) continue;
+    if (/^\s{0,3}(=+|-+)\s*$/.test(lines[i]!)) count += 1;
+  }
+  return count;
+}
+
 export async function surfaceMetrics(text: string): Promise<SurfaceMetrics> {
   const noCode = removeCodeBlocks(text);
   const plain = stripMarkdown(text);
@@ -167,6 +179,6 @@ export async function surfaceMetrics(text: string): Promise<SurfaceMetrics> {
     nominalizationPer1k: chars ? (nominalizations / chars) * 1000 : 0,
     // 構成の数え上げもコードブロックを除いた本文に対して行う（Markdown の例として書かれた見出し・箇条書きを数えない）
     listLines: (noCode.match(/^\s*([-*+]|\d+[.)])\s+/gm) ?? []).length,
-    headings: (noCode.match(/^\s{0,3}#{1,6}\s+/gm) ?? []).length,
+    headings: (noCode.match(/^\s{0,3}#{1,6}\s+/gm) ?? []).length + setextHeadings(noCode),
   };
 }

@@ -117,6 +117,15 @@ describe("removeCodeBlocks（箇条書きの続きの段落）", () => {
   });
 });
 
+describe("Setext 見出し", () => {
+  it("下線は本文として数えず、見出しとして数える", async () => {
+    const md = "見出しです\n=====\n\n小見出しです\n---\n本文です。\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n- 項目\n---\n";
+    expect(splitSentences(md)).toEqual(["見出しです", "小見出しです", "本文です。", "a b", "1 2", "項目"]);
+    const m = await surfaceMetrics(md);
+    expect(m.headings).toBe(2); // 表の区切り行と箇条書きの後の --- は数えない
+  });
+});
+
 describe("箇条書きの中の引用とコード", () => {
   it("箇条書きの中で 4 スペース下がった引用の中のフェンスも落とし、コード内の見出し・箇条書きは構成として数えない", async () => {
     const md = "- 説明です。\n    > ```js\n    > const x = 1;\n    > ```\n    > 引用です。\n\n```md\n# 例の見出し\n- 例の項目\n```\n本文です。";

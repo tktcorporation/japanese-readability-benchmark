@@ -172,6 +172,8 @@ program
       sources = pick(all.tasks, parseList(o.tasks), "タスク").map(taskSource);
     }
 
+    // 一度でも記録した id（鮮度・成否を問わない）。--force の巻き添え判定と --samples の縮小検知に使う
+    const persisted = persistedSampleIds(f.samples);
     const { jobs, cells, skipped } = planJobs({
       sources,
       models,
@@ -180,11 +182,11 @@ program
       perCell,
       force: o.force,
       fresh: new Set(store.keys()),
-      // --force の巻き添え判定は、鮮度で捨てられた依存セルも含めて「一度でも作ったことがある」かで決める
-      persisted: o.force ? persistedSampleIds(f.samples) : new Set<string>(),
+      persisted,
     });
     // サンプルは index ごとに残るので、既存の run で --samples を減らすと余った index が集計に混ざる
-    const extra = extraSamples(cells, perCell, freshSamples.map((s) => s.id));
+    // 鮮度で捨てられている index も、設定を戻せば復活するので、記録されたことのある id すべてで検知する
+    const extra = extraSamples(cells, perCell, persisted);
     if (extra.length) {
       throw new Error(
         `run "${o.run}" には --samples ${perCell} を超える index のサンプルが ${extra.length} 件あります（例: ${extra[0]}）。` +
