@@ -79,6 +79,15 @@ describe("removeCodeBlocks", () => {
   });
 });
 
+describe("stripMarkdown の表", () => {
+  it("表の区切り行は落とし、セルの本文は残す", () => {
+    const md = "| 項目 | 説明です。 |\n| --- | :---: |\n|:-|-:|\n| A | 本文です。 |";
+    expect(stripMarkdown(md)).not.toMatch(/-{2,}|:-|-:/);
+    expect(splitSentences(md)).toEqual(["項目 説明です。", "A 本文です。"]);
+    expect(splitSentences("--- ではない文です。")).toEqual(["--- ではない文です。"]); // 区切り行に見えない行はそのまま
+  });
+});
+
 describe("surfaceMetrics", () => {
   it("冗長な文章は平均文長が長く jReadability が低い", async () => {
     const plain = await surfaceMetrics(PLAIN);

@@ -107,12 +107,12 @@ export function renderMarkdown(report: Report): string {
     out.push(`判定モデル: ${report.judgeModel}${others.length ? `（他に ${others.join(", ")} の判定あり。\`--judge\` で切り替え）` : ""}`);
   }
   out.push("");
-  out.push("矢印は望ましい方向（↓ 小さいほど良い / ↑ 大きいほど良い）。介入の表の括弧内は baseline に対する改善率で、同じ課題・モデル・サンプル番号の baseline と対にできたサンプルだけで計算する（対が一部なら件数を添える）。");
+  out.push(`矢印は望ましい方向（↓ 小さいほど良い / ↑ 大きいほど良い）。介入の表の括弧内は基準の介入 ${report.baselineId} に対する改善率で、同じ課題・モデル・サンプル番号の ${report.baselineId} と対にできたサンプルだけで計算する（対が一部なら件数を添える）。`);
   out.push("`[n=k]` は、その指標が n 列の件数より少ない k 件だけで計算されていることを示す（`judge --limit` や中断した `score` のあと）。");
   out.push("");
 
   if (report.models.length) {
-    out.push("## 1. モデル比較（素の出力 = baseline）");
+    out.push(`## 1. モデル比較（基準の介入 = ${report.baselineId}）`);
     out.push("");
     out.push(table(["モデル", "n", ...metricHeader(keys), "LLM対戦勝率", "人手勝率"], modelRows(report.models, keys)));
     out.push("");
@@ -124,12 +124,12 @@ export function renderMarkdown(report: Report): string {
     out.push("");
     const base = report.interventions.find((c) => c.interventionId === report.baselineId);
     const rows = [...(base ? cellRows([base], keys, false) : []), ...cellRows(interventionsOnly, keys, false)];
-    out.push(table(["介入", "n", ...metricHeader(keys), "LLM勝率 vs baseline", "人手勝率 vs baseline"], rows));
+    out.push(table(["介入", "n", ...metricHeader(keys), `LLM勝率 vs ${report.baselineId}`, `人手勝率 vs ${report.baselineId}`], rows));
     out.push("");
 
     out.push("## 3. モデル × 介入");
     out.push("");
-    out.push(table(["モデル", "介入", "n", ...metricHeader(keys), "LLM勝率 vs baseline", "人手勝率 vs baseline"], cellRows(report.cells, keys, true)));
+    out.push(table(["モデル", "介入", "n", ...metricHeader(keys), `LLM勝率 vs ${report.baselineId}`, `人手勝率 vs ${report.baselineId}`], cellRows(report.cells, keys, true)));
     out.push("");
   }
 

@@ -39,9 +39,29 @@ function json(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
-async function readBody(req: IncomingMessage): Promise<string> {
+/** 投票のリクエスト本文の上限。pairId・rater・choice などしか入らないので十分に小さい */
+const MAX_BODY_BYTES = 16 * 1024;
+
+class BodyTooLargeError extends Error {
+  constructor() {
+    super(`リクエスト本文が大きすぎます（上限 ${MAX_BODY_BYTES} バイト）`);
+  }
+}
+
+/**
+ * 本文を読む。上限を超えたら読み込みを打ち切る（巨大な本文でメモリを使い切らないため）。
+ * 呼び出し側は 413 を返してから接続を閉じる
+ */
+async function readBody(req: IncomingMessage, limit = MAX_BODY_BYTES): Promise<string> {
+  const declared = Number(req.headers["content-length"]);
+  if (Number.isFinite(declared) && declared > limit) throw new BodyTooLargeError();
   const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(chunk as Buffer);
+  let total = 0;
+  for await (const chunk of req) {
+    total += (chunk as Buffer).length;
+    if (total > limit) throw new BodyTooLargeError();
+    chunks.push(chunk as Buffer);
+  }
   return Buffer.concat(chunks).toString("utf8");
 }
 
@@ -109,6 +129,13 @@ export function createHumanEvalServer(opts: ServeOptions) {
       res.writeHead(200, { "content-type": MIME[extname(file)] ?? "application/octet-stream" });
       createReadStream(file).pipe(res);
     } catch (err) {
+      if (err instanceof BodyTooLargeError) {
+        // 残りの本文は読まずに応答し、応答後に接続を閉じる
+        res.setHeader("connection", "close");
+        res.once("finish", () => req.destroy());
+        json(res, 413, { error: err.message });
+        return;
+      }
       json(res, 500, { error: err instanceof Error ? err.message : String(err) });
     }
   });

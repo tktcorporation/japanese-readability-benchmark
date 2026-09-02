@@ -51,6 +51,11 @@ describe("config", () => {
     for (const ok of ["baseline", "style-prompt+textlint", "fable-5.1", "gpt_5"]) expect(idSchema.safeParse(ok).success).toBe(true);
     for (const ng of ["日本語", "a__b", "-lead", "has space", "", "a/b"]) expect(idSchema.safeParse(ng).success).toBe(false);
     expect(() => parseCorpusDoc("---\nid: 規程\n---\n本文", "fb")).toThrow();
+    // 先頭の --- に対応する閉じが無いファイルは、メタデータを本文として採点せずにエラー
+    expect(() => parseCorpusDoc("---\nid: z\ntitle: 題\n本文", "fb")).toThrow("閉じていません");
+    expect(() => parseCorpusDoc("---\r\nid: z\r\n", "fb")).toThrow("閉じていません");
+    expect(parseCorpusDoc("---\nid: z\ntitle: 題\n---", "fb")).toMatchObject({ id: "z", text: "" }); // 閉じの後に本文が無い
+    expect(parseCorpusDoc("--- は区切り線ではなく本文です。", "fb").text).toContain("区切り線");
     // 変換なしで連結するので、+ を含む id も一意のまま
     expect(sampleId("t", "m", "style-prompt+textlint", 0)).toBe("t__m__style-prompt+textlint__0");
   });

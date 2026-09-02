@@ -125,7 +125,11 @@ const corpusFrontmatterSchema = z
 /** frontmatter 付き Markdown からコーパス文書を読む */
 export function parseCorpusDoc(raw: string, fallbackId: string): CorpusDoc {
   // CRLF のファイルでも frontmatter を認識する
-  const m = raw.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n)?([\s\S]*)$/);
+  const m = raw.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)([\s\S]*)$/);
+  // 「---」で始まるのに閉じる「---」が無いファイルは、メタデータを本文として採点してしまうので拒む
+  if (!m && /^---(\r?\n|$)/.test(raw)) {
+    throw new Error(`コーパス "${fallbackId}" の frontmatter が閉じていません（先頭の --- に対応する --- の行が必要です）`);
+  }
   const meta = corpusFrontmatterSchema.parse(m ? (parseYaml(m[1] ?? "") ?? {}) : {});
   const text = (m ? (m[2] ?? "") : raw).trim();
   return {

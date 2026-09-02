@@ -50,6 +50,8 @@ export function stripMarkdown(text: string): string {
     .replace(/^\s*[-*+]\s+/gm, "")
     .replace(/^\s*\d+[.)]\s+/gm, "")
     .replace(/^\s*>\s?/gm, "")
+    // 表の区切り行（| --- | :-: |）は本文ではないので落とす。セルの区切りは空白にする
+    .replace(/^\s*\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)*\|?\s*$/gm, "")
     .replace(/\|/g, " ")
     .replace(/\*\*([^*]+)\*\*/g, "$1")
     .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")

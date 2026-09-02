@@ -262,6 +262,13 @@ describe("人手評価", () => {
     // 本文が同じでも、作り直しが失敗したサンプル（中間結果が残る）のペアは使わない
     expect(isCurrentPair(p, new Map(samples.map((s) => [s.id, s.id === "m1-fix" ? { ...s, error: "失敗" } : s])), sources)).toBe(false);
   });
+  it("--baseline で別の介入を基準にすると、見出しと列名にその id を出す", () => {
+    const r = aggregate({ runId: "r", samples, scores, judgments, baselineId: "textlint-fix" });
+    const md = renderMarkdown(r);
+    expect(md).toContain("基準の介入 = textlint-fix");
+    expect(md).toContain("vs textlint-fix");
+    expect(md).not.toContain("vs baseline");
+  });
   it("majority は同数なら tie", () => {
     expect(majority(["A", "A", "B"])).toBe("A");
     expect(majority(["A", "B"])).toBe("tie");
