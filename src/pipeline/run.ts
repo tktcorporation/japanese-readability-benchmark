@@ -153,11 +153,23 @@ export function sampleId(sourceId: string, modelId: string, interventionId: stri
 }
 
 /**
- * コーパス起点のとき、この介入にモデルが必要か。
- * generate ステップは飛ばされる（reuse は参照先を使う）ので、モデル未指定の rewrite があるときだけ必要。
+ * コーパス起点のとき、この介入にモデルが必要か（＝モデルごとのセルになるか）。
+ * 生成ステップは飛ばされるので、モデル未指定の rewrite があるとき、
+ * または再利用先（を辿った先）がモデルごとの出力を持つときに必要。
  */
-export function needsModelForCorpus(intervention: InterventionDef): boolean {
-  return intervention.steps.some((s) => s.type === "rewrite" && !s.model);
+export function needsModelForCorpus(intervention: InterventionDef, all: InterventionDef[] = [], visiting = new Set<string>()): boolean {
+  if (visiting.has(intervention.id)) return false; // 循環は reuseLevels が別途エラーにする
+  visiting.add(intervention.id);
+  const byId = new Map(all.map((i) => [i.id, i]));
+  return intervention.steps.some((s) => {
+    if (s.type === "rewrite") return !s.model;
+    // 再利用元がモデルごとの出力を持つなら、それを加工するこの介入もモデルごとのセルになる
+    if (s.type === "generate" && s.reuse) {
+      const target = byId.get(s.reuse);
+      return target !== undefined && needsModelForCorpus(target, all, visiting);
+    }
+    return false;
+  });
 }
 
 export function renderTemplate(template: string, vars: Record<string, string>): string {

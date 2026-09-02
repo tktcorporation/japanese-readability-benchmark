@@ -216,10 +216,16 @@ describe("runCell (mock)", () => {
     const h2 = provenanceHash(task, mockVerbose, pinned, models.map((m) => (m.id === "mock-plain" ? { ...m, mockStyle: "verbose" } : m)));
     expect(h1).not.toBe(h2);
   });
-  it("needsModelForCorpus はモデル未指定の rewrite があるときだけ true", () => {
-    expect(needsModelForCorpus(byId("baseline"))).toBe(false);
-    expect(needsModelForCorpus(byId("textlint-fix"))).toBe(false);
-    expect(needsModelForCorpus(byId("rewrite-pass"))).toBe(true);
+  it("needsModelForCorpus はモデル未指定の rewrite が（再利用先を辿って）あるときだけ true", () => {
+    expect(needsModelForCorpus(byId("baseline"), interventions)).toBe(false);
+    expect(needsModelForCorpus(byId("textlint-fix"), interventions)).toBe(false);
+    expect(needsModelForCorpus(byId("rewrite-pass"), interventions)).toBe(true);
+    // rewrite-pass（モデルごとの出力）を再利用して textlint で整えるだけの介入も、モデルごとのセルになる
+    const post: InterventionDef = { id: "rewrite-then-fix", name: "x", dir: "", steps: [{ type: "generate", reuse: "rewrite-pass" }, { type: "textlint-fix" }] };
+    expect(needsModelForCorpus(post, interventions)).toBe(true);
+    expect(needsModelForCorpus(post, [])).toBe(false); // 再利用先が選択外なら判断できないので原文（none）扱い
+    const cyc: InterventionDef[] = [{ id: "p", name: "p", dir: "", steps: [{ type: "generate", reuse: "q" }] }, { id: "q", name: "q", dir: "", steps: [{ type: "generate", reuse: "p" }] }];
+    expect(needsModelForCorpus(cyc[0]!, cyc)).toBe(false);
   });
   it("本文が空なら成功サンプルにせずエラーとして記録する", async () => {
     const empty = corpusSource({ id: "empty", title: "空", text: "   \n" });

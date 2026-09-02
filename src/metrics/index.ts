@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import type { Sample, ScoreRecord } from "../types.ts";
 import { installedVersion, readText, repoPath, sha256 } from "../util/fs.ts";
 import { surfaceMetrics } from "./surface.ts";
-import { lintText } from "./textlint.ts";
+import { lintText, textlintToolchain } from "./textlint.ts";
 
 /**
  * 指標の実装版。表層指標や jReadability の計算方法を変えたら上げる。
@@ -10,8 +10,8 @@ import { lintText } from "./textlint.ts";
  */
 export const METRICS_VERSION = "metrics-v1";
 
-/** 採点に影響する依存パッケージ。インストール済みの版を採点設定ハッシュに含める */
-const SCORING_PACKAGES = ["textlint", "textlint-rule-preset-ja-technical-writing", "kuromojin"];
+/** textlint 以外で採点に影響する依存パッケージ（表層指標・jReadability の形態素解析） */
+const SURFACE_PACKAGES = ["kuromojin"];
 
 
 /**
@@ -20,7 +20,8 @@ const SCORING_PACKAGES = ["textlint", "textlint-rule-preset-ja-technical-writing
  */
 export function scoringHashOf(textlintConfig = repoPath(".textlintrc.json")): string {
   const config = existsSync(textlintConfig) ? readText(textlintConfig) : "";
-  return sha256("scoring", METRICS_VERSION, config, ...SCORING_PACKAGES.map((p) => `${p}@${installedVersion(p)}`));
+  // textlint 本体と、設定で有効にしているルール・フィルタすべての版を含める（設定から動的に求める）
+  return sha256("scoring", METRICS_VERSION, config, ...textlintToolchain(config), ...SURFACE_PACKAGES.map((p) => `${p}@${installedVersion(p)}`));
 }
 
 /**

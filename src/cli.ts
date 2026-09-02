@@ -76,9 +76,16 @@ function provenanceHashes(): Map<string, string> {
   return map;
 }
 
-/** サンプルを読む。入力・モデル設定・介入定義のどれかが編集・削除されていれば、そのサンプルは陳腐化として除外される */
-function loadSamples(runId: string): Sample[] {
-  return loadSamplesFile(files(runId).samples, { provenanceHashes: provenanceHashes() });
+/**
+ * サンプルを読む。入力・モデル設定・介入定義のどれかが編集・削除されていれば、そのサンプルは陳腐化として除外される。
+ * run 以外のコマンドでは、samples.jsonl が無い（run id の綴り間違いなど）場合は空の結果を書き出さずにエラーにする
+ */
+function loadSamples(runId: string, opts: { mustExist?: boolean } = {}): Sample[] {
+  const path = files(runId).samples;
+  if (opts.mustExist !== false && !existsSync(path)) {
+    throw new Error(`run "${runId}" のサンプルがありません（${path}）。先に \`bench run --run ${runId}\` を実行してください`);
+  }
+  return loadSamplesFile(path, { provenanceHashes: provenanceHashes() });
 }
 
 /** --baseline が現在の介入定義に存在することを確かめる（綴り間違いで空の結果を書き出さないように） */
@@ -161,7 +168,7 @@ program
     const f = files(o.run);
     ensureDir(f.dir);
     // 既存サンプル。reuse ステップの参照先にもなる（--force のときも参照先として残し、再生成されたら置き換わる）
-    const store = new Map<string, Sample>(loadSamples(o.run).filter((s) => !s.error).map((s) => [s.id, s]));
+    const store = new Map<string, Sample>(loadSamples(o.run, { mustExist: false }).filter((s) => !s.error).map((s) => [s.id, s]));
     const existing = new Set(o.force ? [] : store.keys());
     // --force の巻き添え判定は、鮮度で捨てられた依存セルも含めて「一度でも作ったことがある」かで決める
     const persisted = o.force ? persistedSampleIds(f.samples) : new Set<string>();
@@ -189,7 +196,7 @@ program
     for (const source of sources) {
       for (const intervention of interventions) {
         const modelChoices: (ModelDef | undefined)[] =
-          source.type === "corpus" && !needsModelForCorpus(intervention) ? [undefined] : models;
+          source.type === "corpus" && !needsModelForCorpus(intervention, allInterventions) ? [undefined] : models;
         for (const model of modelChoices) {
           for (let index = 0; index < perCell; index += 1) {
             addJob({ source, model, intervention, index });
@@ -419,7 +426,8 @@ program
   .requiredOption("--run <id>")
   .action((o: { run: string }) => {
     const f = files(o.run);
-    const pairs = existsSync(f.pairs) ? readJson<HumanPair[]>(f.pairs) : [];
+    if (!existsSync(f.pairs)) throw new Error(`run "${o.run}" に pairs.json がありません。先に \`bench pairs --run ${o.run}\` を実行してください`);
+    const pairs = readJson<HumanPair[]>(f.pairs);
     const votes = readJsonl<HumanVote>(f.votes);
     const summary = summarizeVotes(pairs, votes);
     writeJson(f.humanSummary, summary);

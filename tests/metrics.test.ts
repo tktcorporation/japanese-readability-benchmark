@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { METRICS_VERSION, scoreSample, scoringHashOf } from "../src/metrics/index.ts";
+import { installedVersion, sha256 } from "../src/util/fs.ts";
 import { surfaceMetrics } from "../src/metrics/surface.ts";
 import { fixText, lintText, textlintPackagesOf, textlintToolchain } from "../src/metrics/textlint.ts";
 import { loadFixture } from "../src/providers/mock.ts";
@@ -95,6 +96,9 @@ describe("採点設定のハッシュ", () => {
     }
     const rec = await scoreSample({ id: "s", runId: "r", sourceType: "task", sourceId: "t", modelId: "m", interventionId: "baseline", sampleIndex: 0, text: PLAIN, steps: [], createdAt: "" });
     expect(rec.scoringHash).toBe(base);
+    // 設定で有効にしている textlint パッケージすべての版と kuromojin の版を含む
+    const config = readFileSync(join(process.cwd(), ".textlintrc.json"), "utf8");
+    expect(base).toBe(sha256("scoring", METRICS_VERSION, config, ...textlintToolchain(config), `kuromojin@${installedVersion("kuromojin")}`));
   });
 });
 
