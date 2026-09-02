@@ -263,6 +263,10 @@ program
     const baselineId = assertBaseline(o.baseline);
     const cfg = loadModels();
     const judgeModel = pick(cfg.models, [o.judge ?? cfg.judge.model], "モデル")[0]!;
+    // 判定は 1 つのモデルの判断として記録・集計するので、refusal 時に別モデルへ切り替わる設定は使えない
+    if (judgeModel.fallbacks) {
+      throw new Error(`判定モデル "${judgeModel.id}" は fallbacks が有効です。判定に使うモデルは fallbacks: false（省略）にしてください`);
+    }
     const provider = createProvider(judgeModel);
     const cacheDir = o.cache ? repoPath("results", "cache", "judge") : undefined;
     if (cacheDir) ensureDir(cacheDir);

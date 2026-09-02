@@ -1,5 +1,5 @@
 import { existsSync, readdirSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import type { CorpusDoc, InterventionDef, ModelDef, PairScheme, StepDef, TaskDef } from "./types.ts";
@@ -168,7 +168,7 @@ export function loadInterventions(dir = repoPath("interventions")): Intervention
     }),
     "介入",
   );
-  return assertReuseTargets(defs);
+  return assertRewriteTemplates(assertReuseTargets(defs));
 }
 
 /** rewrite ステップで明示した model が config/models.yaml に存在することを確かめる（綴り間違いで生成だけ課金されるのを防ぐ） */
@@ -181,6 +181,21 @@ export function assertRewriteModels<T extends { id: string; steps: StepDef[] }>(
     }
   }
   return interventions;
+}
+
+/** rewrite ステップのテンプレートが存在し、書き直す本文を埋め込む {{text}} を含むことを確かめる（無いとモデルに本文が渡らず、無関係な応答が成功として保存される） */
+export function assertRewriteTemplates<T extends { id: string; dir: string; steps: StepDef[] }>(defs: T[]): T[] {
+  for (const def of defs) {
+    for (const step of def.steps) {
+      if (step.type !== "rewrite") continue;
+      const file = resolve(def.dir, step.prompt);
+      if (!existsSync(file)) throw new Error(`介入 "${def.id}" の rewrite テンプレート "${step.prompt}" が見つかりません（${file}）`);
+      if (!/\{\{\s*text\s*\}\}/.test(readText(file))) {
+        throw new Error(`介入 "${def.id}" の rewrite テンプレート "${step.prompt}" に {{text}} がありません。書き直す本文を埋め込む位置に {{text}} を書いてください`);
+      }
+    }
+  }
+  return defs;
 }
 
 /** generate ステップの reuse 先が実在する別の介入を指していることを確かめる（綴り間違いは実行前に止める） */

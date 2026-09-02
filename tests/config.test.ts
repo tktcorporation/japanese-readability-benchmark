@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { assertRewriteModels, assertUniqueIds, loadAllSources, loadCorpus, loadInterventions, loadModels, loadTasks } from "../src/config.ts";
+import { assertRewriteModels, assertRewriteTemplates, assertUniqueIds, loadAllSources, loadCorpus, loadInterventions, loadModels, loadTasks } from "../src/config.ts";
 
 const root = mkdtempSync(join(tmpdir(), "jrb-config-"));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -54,6 +54,14 @@ describe("設定の検証", () => {
     expect(assertRewriteModels(rewrite("mock-plain"), models)).toHaveLength(1);
     expect(assertRewriteModels(rewrite(), models)).toHaveLength(1); // 省略時はセルのモデルを使う
     expect(assertRewriteModels(loadInterventions(), loadModels().models).length).toBeGreaterThan(0); // 同梱の定義は整合している
+  });
+  it("rewrite テンプレートは存在し {{text}} を含まなければ読み込み時にエラー", () => {
+    const d = dirWith("rewrite-templates", { "ok.md": "書き直して:\n{{ text }}", "no-text.md": "書き直して: {{txet}}" });
+    const def = (prompt: string) => [{ id: "rw", dir: d, steps: [{ type: "rewrite" as const, prompt }] }];
+    expect(assertRewriteTemplates(def("ok.md"))).toHaveLength(1);
+    expect(() => assertRewriteTemplates(def("no-text.md"))).toThrow("{{text}} がありません");
+    expect(() => assertRewriteTemplates(def("missing.md"))).toThrow("見つかりません");
+    expect(loadInterventions().length).toBeGreaterThan(0); // 同梱のテンプレートは {{text}} を含む
   });
   it("同梱のタスクとコーパスは id がまたがって重複しない", () => {
     const { tasks, corpus } = loadAllSources();
