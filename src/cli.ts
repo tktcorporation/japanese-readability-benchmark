@@ -8,7 +8,7 @@ import { createHumanEvalServer } from "./human/server.ts";
 import { buildPairs, judgePairwise, judgeRubric, type SourceInfo } from "./judge/index.ts";
 import { scoreSample } from "./metrics/index.ts";
 import { PAIRWISE_PROMPT_VERSION, RUBRIC_PROMPT_VERSION } from "./judge/prompts.ts";
-import { corpusSource, needsModelForCorpus, reusesIntervention, runCell, sampleId, taskSource, type Source } from "./pipeline/run.ts";
+import { corpusSource, needsModelForCorpus, reuseLevels, runCell, sampleId, taskSource, type Source } from "./pipeline/run.ts";
 import { createProvider } from "./providers/index.ts";
 import { aggregate } from "./report/aggregate.ts";
 import { renderMarkdown } from "./report/markdown.ts";
@@ -126,13 +126,16 @@ program
     log(`${jobs.length} セルを実行します（スキップ ${existing.size}）`);
     let done = 0;
     let errors = 0;
-    // 他の介入の出力を再利用する介入は、参照先がそろってから実行する
-    const phases = [jobs.filter((j) => !reusesIntervention(j.intervention)), jobs.filter((j) => reusesIntervention(j.intervention))];
-    for (const phase of phases) {
+    // 他の介入の出力を再利用する介入は、参照先の段階がすべて終わってから実行する
+    for (const level of reuseLevels(interventions)) {
+      const ids = new Set(level.map((i) => i.id));
+      const phase = jobs.filter((j) => ids.has(j.intervention.id));
       await mapLimit(phase, Number(o.concurrency), async (job) => {
         const sample = await runCell(job.source, job.model, job.intervention, job.index, { runId: o.run, allModels, lookup });
         appendJsonl(f.samples, sample);
-        if (!sample.error) store.set(sample.id, sample);
+        // 失敗したら古い成功サンプルも参照先から外す（依存側が古い本文で成功扱いにならないように）
+        if (sample.error) store.delete(sample.id);
+        else store.set(sample.id, sample);
         done += 1;
         if (sample.error) {
           errors += 1;

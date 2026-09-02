@@ -106,6 +106,14 @@ describe("aggregate", () => {
     expect(md).toContain("textlint-fix");
     expect(md).toContain("+50.0%");
   });
+  it("一部のサンプルでしか計算されていない指標には件数を添える", () => {
+    // baseline 行は 2 サンプルあるが、LLM 採点は m1-base の 1 件だけ
+    const base = report.interventions.find((c) => c.interventionId === "baseline")!;
+    expect(base.metrics.judgeOverall?.n).toBe(1);
+    expect(base.metrics.textlintPer1k?.n).toBe(2);
+    const md = renderMarkdown(report);
+    expect(md).toMatch(/\| baseline \| 2 \| 7\.00 \| .*2\.00 \[n=1\]/);
+  });
 });
 
 describe("人手評価", () => {

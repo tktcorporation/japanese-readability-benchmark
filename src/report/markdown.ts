@@ -1,5 +1,5 @@
 import { HEADLINE_METRICS, METRIC_DIRECTION } from "../metrics/index.ts";
-import type { CellReport, ModelReport, Report, WinRate } from "./aggregate.ts";
+import type { CellReport, MetricStat, ModelReport, Report, WinRate } from "./aggregate.ts";
 
 const LABELS: Record<string, string> = {
   textlintPer1k: "textlint違反/1k字",
@@ -22,6 +22,13 @@ function fmt(key: string, v: number | undefined): string {
   if (v === undefined || !Number.isFinite(v)) return "-";
   if (PCT_METRICS.has(key)) return `${(v * 100).toFixed(1)}%`;
   return v.toFixed(2);
+}
+
+/** 平均値。指標が一部のサンプルでしか計算されていなければ件数を添える */
+function fmtStat(key: string, stat: MetricStat | undefined, expected: number): string {
+  if (!stat) return "-";
+  const v = fmt(key, stat.mean);
+  return stat.n < expected ? `${v} [n=${stat.n}]` : v;
 }
 
 function fmtPct(v: number | undefined): string {
@@ -60,7 +67,7 @@ function modelRows(models: ModelReport[], keys: string[]): string[][] {
   return models.map((m) => [
     m.modelId,
     String(m.samples - m.errors),
-    ...keys.map((k) => fmt(k, m.metrics[k]?.mean)),
+    ...keys.map((k) => fmtStat(k, m.metrics[k], m.samples - m.errors)),
     fmtWin(m.judgeWinRate),
     fmtWin(m.humanWinRate),
   ]);
@@ -72,7 +79,7 @@ function cellRows(cells: CellReport[], keys: string[], withModel: boolean): stri
     c.interventionId,
     String(c.samples - c.errors),
     ...keys.map((k) => {
-      const v = fmt(k, c.metrics[k]?.mean);
+      const v = fmtStat(k, c.metrics[k], c.samples - c.errors);
       const imp = c.improvementPct?.[k];
       return imp === undefined ? v : `${v} (${fmtPct(imp)})`;
     }),
@@ -94,6 +101,7 @@ export function renderMarkdown(report: Report): string {
   }
   out.push("");
   out.push("矢印は望ましい方向（↓ 小さいほど良い / ↑ 大きいほど良い）。介入の表の括弧内は baseline に対する改善率。");
+  out.push("`[n=k]` は、その指標が n 列の件数より少ない k 件だけで計算されていることを示す（`judge --limit` や中断した `score` のあと）。");
   out.push("");
 
   if (report.models.length) {

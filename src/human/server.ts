@@ -59,7 +59,12 @@ export function createHumanEvalServer(opts: ServeOptions) {
     try {
       if (req.method === "GET" && url.pathname === "/api/pairs") {
         const rater = url.searchParams.get("rater") ?? "";
-        const answered = new Set(readJsonl<HumanVote>(opts.votesFile).filter((v) => v.raterId === rater).map((v) => v.pairId));
+        // 現在の pairs.json にあるペアへの投票だけを数える（作り直す前の古いペア ID は無視）
+        const answered = new Set(
+          readJsonl<HumanVote>(opts.votesFile)
+            .filter((v) => v.raterId === rater && byId.has(v.pairId))
+            .map((v) => v.pairId),
+        );
         const remaining = pairs.filter((p) => !answered.has(p.id));
         // 上限は累積（回答済みを差し引く）。リロードしても上限を超えて出さない
         const allowance = opts.perRater ? Math.max(0, opts.perRater - answered.size) : remaining.length;

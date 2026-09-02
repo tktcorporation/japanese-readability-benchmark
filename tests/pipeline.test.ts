@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { loadCorpus, loadInterventions, loadModels, loadTasks, parseCorpusDoc } from "../src/config.ts";
 import { surfaceMetrics } from "../src/metrics/surface.ts";
-import { corpusSource, needsModelForCorpus, renderTemplate, reusesIntervention, runCell, sampleId, taskSource } from "../src/pipeline/run.ts";
-import type { Sample } from "../src/types.ts";
+import { corpusSource, needsModelForCorpus, renderTemplate, reuseLevels, reusesIntervention, runCell, sampleId, taskSource } from "../src/pipeline/run.ts";
+import type { InterventionDef, Sample } from "../src/types.ts";
 
 const { models } = loadModels();
 const interventions = loadInterventions();
@@ -41,6 +41,32 @@ describe("config", () => {
   });
   it("renderTemplate は {{var}} を展開する", () => {
     expect(renderTemplate("A {{ text }} B {{audience}} {{none}}", { text: "x", audience: "y" })).toBe("A x B y ");
+  });
+});
+
+describe("reuseLevels", () => {
+  const def = (id: string, reuse?: string): InterventionDef => ({
+    id,
+    name: id,
+    dir: "",
+    steps: [{ type: "generate", ...(reuse ? { reuse } : {}) }],
+  });
+  it("reuse の連鎖を深さごとの段階に分ける", () => {
+    const levels = reuseLevels([def("c", "b"), def("a"), def("b", "a"), def("d", "a")]);
+    expect(levels.map((l) => l.map((i) => i.id).sort())).toEqual([["a"], ["b", "d"], ["c"]]);
+  });
+  it("選択されていない介入を参照する場合は段階 1（既存サンプルに頼る）", () => {
+    const levels = reuseLevels([def("x", "baseline")]);
+    expect(levels.map((l) => l.map((i) => i.id))).toEqual([[], ["x"]]);
+  });
+  it("循環参照はエラー", () => {
+    expect(() => reuseLevels([def("a", "b"), def("b", "a")])).toThrow("循環");
+    expect(() => reuseLevels([def("a", "a")])).toThrow("循環");
+  });
+  it("同梱の介入は baseline → 後処理 の 2 段階", () => {
+    const levels = reuseLevels(interventions);
+    expect(levels[0]!.map((i) => i.id)).toContain("baseline");
+    expect(levels[1]!.map((i) => i.id).sort()).toEqual(["rewrite-pass", "textlint-fix"]);
   });
 });
 

@@ -32,6 +32,38 @@ export function reusesIntervention(intervention: InterventionDef): string | unde
   return undefined;
 }
 
+/**
+ * reuse の依存関係で介入を段階に分ける。段階 k の介入は段階 k-1 までの出力だけを参照する。
+ * 選択されていない介入を参照する場合は run 内の既存サンプルに頼るので段階 1 に置く。
+ * 循環参照は例外。
+ */
+export function reuseLevels(interventions: InterventionDef[]): InterventionDef[][] {
+  const byId = new Map(interventions.map((i) => [i.id, i]));
+  const depth = new Map<string, number>();
+  const visiting = new Set<string>();
+  const resolve = (i: InterventionDef): number => {
+    const cached = depth.get(i.id);
+    if (cached !== undefined) return cached;
+    const dep = reusesIntervention(i);
+    let d = 0;
+    if (dep) {
+      if (visiting.has(i.id)) throw new Error(`介入の reuse が循環しています: ${i.id}`);
+      visiting.add(i.id);
+      const target = byId.get(dep);
+      d = target ? resolve(target) + 1 : 1;
+      visiting.delete(i.id);
+    }
+    depth.set(i.id, d);
+    return d;
+  };
+  const levels: InterventionDef[][] = [];
+  for (const i of interventions) {
+    const d = resolve(i);
+    (levels[d] ??= []).push(i);
+  }
+  return Array.from({ length: levels.length }, (_, k) => levels[k] ?? []);
+}
+
 export function sampleId(sourceId: string, modelId: string, interventionId: string, index: number): string {
   return [slug(sourceId), slug(modelId), slug(interventionId), String(index)].join("__");
 }
