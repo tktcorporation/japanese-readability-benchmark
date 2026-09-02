@@ -1,6 +1,7 @@
 import { createLinter, loadTextlintrc, type CreateLinterOptions } from "textlint";
 import type { TextlintMessage } from "../types.ts";
 import { repoPath } from "../util/fs.ts";
+import { stripMarkdown } from "./sentences.ts";
 
 type Linter = ReturnType<typeof createLinter>;
 
@@ -19,7 +20,7 @@ export interface TextlintResult {
   messages: TextlintMessage[];
   /** ルール別件数 */
   rules: Record<string, number>;
-  /** 1000 文字あたりの違反数 */
+  /** 1000 文字あたりの違反数。分母はコードブロックや Markdown 記法を除いた本文（表層指標の chars と同じ） */
   per1k: number;
   count: number;
   fixableCount: number;
@@ -39,7 +40,7 @@ export async function lintText(text: string, configFilePath?: string): Promise<T
     }));
   const rules: Record<string, number> = {};
   for (const m of messages) rules[m.ruleId] = (rules[m.ruleId] ?? 0) + 1;
-  const chars = text.replace(/\s+/g, "").length || 1;
+  const chars = stripMarkdown(text).replace(/\s+/g, "").length || 1;
   return {
     messages,
     rules,

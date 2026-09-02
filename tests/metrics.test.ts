@@ -65,6 +65,13 @@ describe("textlint", () => {
     const [p, v] = await Promise.all([lintText(PLAIN), lintText(VERBOSE)]);
     expect(v.per1k).toBeGreaterThan(p.per1k);
   });
+  it("違反密度の分母はコードブロックを含めない", async () => {
+    const prose = "本システムにおいては、ユーザーがログインした際に、セッションが生成されるが、この際に、トークンの検証が行われないケースが存在するため、注意が必要である。";
+    const withCode = `${prose}\n\n\`\`\`\n${"const x = 1;\n".repeat(50)}\`\`\`\n`;
+    const [a, b] = await Promise.all([lintText(prose), lintText(withCode)]);
+    expect(b.count).toBe(a.count);
+    expect(b.per1k).toBeCloseTo(a.per1k, 5);
+  });
   it("fixText は文字列を返し、適用数を報告する", async () => {
     const r = await fixText("これはテストです。これもテストです。");
     expect(typeof r.output).toBe("string");

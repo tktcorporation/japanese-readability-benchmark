@@ -71,8 +71,8 @@ export interface AggregateInput {
   scores: ScoreRecord[];
   judgments: Judgment[];
   humanVotes?: HumanVote[];
-  /** pairId -> {a,b} の対応（人手評価用） */
-  humanPairs?: { id: string; scheme: PairScheme; aSampleId: string; bSampleId: string }[];
+  /** pairId -> {a,b} の対応（人手評価用）。aText/bText は表示した本文で、現在のサンプルと一致するものだけ集計する */
+  humanPairs?: { id: string; scheme: PairScheme; aSampleId: string; bSampleId: string; aText: string; bText: string }[];
   baselineId?: string;
   /** 集計に使う判定モデル。省略時は run 内で最初に見つかったもの */
   judgeModel?: string;
@@ -181,20 +181,25 @@ export function aggregate(input: AggregateInput): Report {
   const humanCellWin = new Map<string, WinRate>();
   const humanModelWin = new Map<string, WinRate>();
   let agreement: Report["humanJudgeAgreement"];
-  if (input.humanVotes?.length && input.humanPairs?.length) {
-    const pairById = new Map(input.humanPairs.map((p) => [p.id, p]));
+  // 表示した本文が現在のサンプルと一致するペアだけを有効とする（再生成後の古いペア・投票は捨てる）
+  const validPairs = (input.humanPairs ?? []).filter((p) => {
+    const a = sampleById.get(p.aSampleId);
+    const b = sampleById.get(p.bSampleId);
+    return a !== undefined && b !== undefined && a.text === p.aText && b.text === p.bText;
+  });
+  const pairById = new Map(validPairs.map((p) => [p.id, p]));
+  const humanVotes = (input.humanVotes ?? []).filter((v) => pairById.has(v.pairId));
+  if (humanVotes.length) {
     const judgeByPair = new Map(pairwise.map((j) => [`${j.aSampleId}|${j.bSampleId}`, j.verdict]));
     let n = 0;
     let agree = 0;
     // ペアごとに多数決してから集計する（1 人が大量投票しても偏らないように）
     const votesByPair = new Map<string, PairVerdict[]>();
-    for (const v of input.humanVotes) votesByPair.set(v.pairId, [...(votesByPair.get(v.pairId) ?? []), v.choice]);
+    for (const v of humanVotes) votesByPair.set(v.pairId, [...(votesByPair.get(v.pairId) ?? []), v.choice]);
     for (const [pairId, choices] of votesByPair) {
-      const pair = pairById.get(pairId);
-      if (!pair) continue;
-      const a = sampleById.get(pair.aSampleId);
-      const b = sampleById.get(pair.bSampleId);
-      if (!a || !b) continue;
+      const pair = pairById.get(pairId)!;
+      const a = sampleById.get(pair.aSampleId)!;
+      const b = sampleById.get(pair.bSampleId)!;
       const verdict = majority(choices);
       if (pair.scheme === "interventions") {
         const key = `${a.modelId}|${a.interventionId}`;
@@ -327,7 +332,7 @@ export function aggregate(input: AggregateInput): Report {
       scores: scores.length,
       rubric: judgments.filter((j) => j.kind === "rubric").length,
       pairwise: pairwise.length,
-      humanVotes: input.humanVotes?.length ?? 0,
+      humanVotes: humanVotes.length,
     },
     metricKeys,
     models,

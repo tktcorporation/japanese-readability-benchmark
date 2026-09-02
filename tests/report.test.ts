@@ -126,6 +126,19 @@ describe("人手評価", () => {
     const cell = report.cells.find((c) => c.modelId === "m1" && c.interventionId === "textlint-fix")!;
     expect(cell.humanWinRate).toMatchObject({ wins: 1, n: 1 });
     expect(report.humanJudgeAgreement).toMatchObject({ n: 1, agree: 1, rate: 1 });
+    expect(report.counts.humanVotes).toBe(3);
+  });
+  it("本文が変わったサンプルのペアと、その投票は集計しない", () => {
+    const pairs = buildHumanPairs(samples, { schemes: ["interventions"], baselineId: "baseline", sources });
+    const p = pairs.find((x) => x.aSampleId === "m1-fix")!;
+    const votes: HumanVote[] = [{ pairId: p.id, choice: "A", leftWasA: true, raterId: "r1", createdAt: "" }, { pairId: "stale", choice: "B", leftWasA: true, raterId: "r1", createdAt: "" }];
+    const regenerated = samples.map((s) => (s.id === "m1-fix" ? { ...s, text: "再生成された本文" } : s));
+    const report = aggregate({ runId: "r", samples: regenerated, scores, judgments, humanVotes: votes, humanPairs: pairs });
+    expect(report.counts.humanVotes).toBe(0);
+    expect(report.cells.find((c) => c.modelId === "m1" && c.interventionId === "textlint-fix")?.humanWinRate).toBeUndefined();
+    // ペア ID は本文を含むので、再生成後に pairs を作り直すと別 ID になる
+    const newPairs = buildHumanPairs(regenerated, { schemes: ["interventions"], baselineId: "baseline", sources });
+    expect(newPairs.find((x) => x.aSampleId === "m1-fix")?.id).not.toBe(p.id);
   });
   it("majority は同数なら tie", () => {
     expect(majority(["A", "A", "B"])).toBe("A");

@@ -18,7 +18,8 @@ export function buildHumanPairs(samples: Sample[], opts: BuildHumanPairsOptions)
     for (const p of buildPairs(samples, scheme, opts.baselineId)) {
       const src = opts.sources.get(p.sourceId);
       pairs.push({
-        id: sha256(scheme, p.a.id, p.b.id).slice(0, 16),
+        // 本文もキーに含める。サンプルを再生成すると別のペアになり、古い投票は集計から外れる
+        id: sha256(scheme, p.a.id, p.b.id, p.a.text, p.b.text).slice(0, 16),
         sourceId: p.sourceId,
         scheme,
         aSampleId: p.a.id,
