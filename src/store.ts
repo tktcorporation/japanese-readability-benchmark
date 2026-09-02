@@ -55,6 +55,15 @@ export function loadSamples(path: string, opts: LoadSamplesOptions = {}): Sample
   return Array.from(byId.values()).filter((s) => isFresh(s.id));
 }
 
+/**
+ * ファイルに記録されたことのあるサンプル id（鮮度・成否を問わない）。
+ * --force で参照元を作り直すとき、どの依存セルを一緒に作り直すかの判断に使う。
+ * 鮮度で捨てられた依存セルも「以前に作った」ことには変わりないので、ここでは残す
+ */
+export function persistedSampleIds(path: string): Set<string> {
+  return new Set(readJsonl<Sample>(path).map((s) => s.id));
+}
+
 /** 成功したサンプルだけが「現在の本文」を持つ。失敗した記録の本文（中間結果や空）は鮮度の根拠にしない */
 export function sampleHashes(samples: Sample[]): Map<string, string> {
   return new Map(samples.filter((s) => !s.error).map((s) => [s.id, sha256(s.text)]));

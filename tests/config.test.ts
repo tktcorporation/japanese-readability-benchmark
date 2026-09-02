@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { assertUniqueIds, loadAllSources, loadCorpus, loadInterventions, loadTasks } from "../src/config.ts";
+import { assertUniqueIds, loadAllSources, loadCorpus, loadInterventions, loadModels, loadTasks } from "../src/config.ts";
 
 const root = mkdtempSync(join(tmpdir(), "jrb-config-"));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -33,6 +33,12 @@ describe("設定の検証", () => {
     expect(() => loadInterventions(dirWith("typo-step", { "x.yaml": "id: x\nname: t\nsteps:\n  - type: generate\n    resue: baseline\n" }))).toThrow();
     expect(() => loadInterventions(dirWith("typo-top", { "x.yaml": "id: x\nname: t\nextra: 1\nsteps:\n  - type: generate\n" }))).toThrow();
     expect(loadInterventions(dirWith("ok", { "x.yaml": "id: x\nname: t\nsteps:\n  - type: generate\n    reuse: baseline\n" }))).toHaveLength(1);
+  });
+  it('モデル id に予約語 "none" は使えない', () => {
+    const models = (id: string) => `models:\n  - id: ${id}\n    provider: mock\n    model: x\njudge:\n  model: ${id}\n`;
+    const d = dirWith("reserved-model", { "none.yaml": models("none"), "ok.yaml": models("mock-x") });
+    expect(() => loadModels(join(d, "none.yaml"))).toThrow("予約");
+    expect(loadModels(join(d, "ok.yaml")).models.map((m) => m.id)).toEqual(["mock-x"]);
   });
   it("同梱のタスクとコーパスは id がまたがって重複しない", () => {
     const { tasks, corpus } = loadAllSources();

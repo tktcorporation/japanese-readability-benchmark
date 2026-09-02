@@ -26,9 +26,12 @@ const taskSchema = z
   })
   .strict();
 
+/** モデルなしのセル（コーパス原文など）に使う予約 id。設定ファイルのモデル id には使えない */
+export const NONE_MODEL_ID = "none";
+
 const modelSchema = z
   .object({
-    id: idSchema,
+    id: idSchema.refine((v) => v !== NONE_MODEL_ID, { message: `"${NONE_MODEL_ID}" はモデルなしのセルに使う予約 id です` }),
     provider: z.enum(["anthropic", "openai", "mock"]),
     model: z.string(),
     label: z.string().optional(),

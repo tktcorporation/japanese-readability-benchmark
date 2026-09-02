@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { PAIRWISE_PROMPT_VERSION, RUBRIC_PROMPT_VERSION } from "../src/judge/prompts.ts";
-import { loadJudgments, loadSamples, loadScores } from "../src/store.ts";
+import { loadJudgments, loadSamples, loadScores, persistedSampleIds } from "../src/store.ts";
 import type { Judgment, Sample, ScoreRecord } from "../src/types.ts";
 import { appendJsonl, sha256 } from "../src/util/fs.ts";
 
@@ -95,6 +95,15 @@ describe("store", () => {
     expect(loadSamples(file, { provenanceHashes: new Map() })).toEqual([]);
   });
 
+  it("記録済みの id は鮮度や成否に関係なく列挙する（--force の巻き添え判定用）", () => {
+    const file = join(dir, "persisted.jsonl");
+    appendJsonl(file, { ...sample("c__none__baseline__0", "原文。"), inputHash: "stale" });
+    appendJsonl(file, { ...sample("c__m__rewrite-pass__0", "書き直し。"), interventionId: "rewrite-pass", inputHash: "stale" });
+    appendJsonl(file, { ...sample("c__m__textlint-fix__0", ""), interventionId: "textlint-fix", error: "失敗" });
+    expect(loadSamples(file, { provenanceHashes: new Map() })).toEqual([]);
+    expect(Array.from(persistedSampleIds(file)).sort()).toEqual(["c__m__rewrite-pass__0", "c__m__textlint-fix__0", "c__none__baseline__0"]);
+    expect(persistedSampleIds(join(dir, "missing.jsonl")).size).toBe(0);
+  });
   it("判定モデルの設定が変わった判定は捨てる（judgeConfigHashes を渡したとき）", () => {
     const sFile = join(dir, "jc-samples.jsonl");
     const jFile = join(dir, "jc-judgments.jsonl");

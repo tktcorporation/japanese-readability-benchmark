@@ -12,7 +12,7 @@ import { cellKey, corpusSource, dependentsOf, needsModelForCorpus, provenanceHas
 import { createProvider } from "./providers/index.ts";
 import { aggregate } from "./report/aggregate.ts";
 import { renderMarkdown } from "./report/markdown.ts";
-import { loadJudgments, loadSamples as loadSamplesFile, loadScores } from "./store.ts";
+import { loadJudgments, loadSamples as loadSamplesFile, loadScores, persistedSampleIds } from "./store.ts";
 import type { HumanPair, HumanVote, ModelDef, PairScheme, PairwiseJudgment, RubricJudgment, Sample } from "./types.ts";
 import { mapLimit } from "./util/async.ts";
 import { loadDotenv } from "./util/env.ts";
@@ -158,6 +158,8 @@ program
     // 既存サンプル。reuse ステップの参照先にもなる（--force のときも参照先として残し、再生成されたら置き換わる）
     const store = new Map<string, Sample>(loadSamples(o.run).filter((s) => !s.error).map((s) => [s.id, s]));
     const existing = new Set(o.force ? [] : store.keys());
+    // --force の巻き添え判定は、鮮度で捨てられた依存セルも含めて「一度でも作ったことがある」かで決める
+    const persisted = o.force ? persistedSampleIds(f.samples) : new Set<string>();
     const lookup = (sourceId: string, modelId: string, interventionId: string, index: number) =>
       store.get(sampleId(sourceId, modelId, interventionId, index));
 
@@ -192,7 +194,7 @@ program
               const candidates: (ModelDef | undefined)[] = source.type === "corpus" ? [undefined, ...models] : [model];
               for (const dependent of dependentsOf(intervention.id, allInterventions)) {
                 for (const m of candidates) {
-                  if (store.has(sampleId(source.id, m?.id ?? "none", dependent.id, index))) {
+                  if (persisted.has(sampleId(source.id, m?.id ?? "none", dependent.id, index))) {
                     addJob({ source, model: m, intervention: dependent, index });
                   }
                 }
