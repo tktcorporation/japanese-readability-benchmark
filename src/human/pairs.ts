@@ -1,4 +1,4 @@
-import { buildPairs, type SourceInfo } from "../judge/index.ts";
+import { buildPairs, DEFAULT_AUDIENCE, type SourceInfo } from "../judge/index.ts";
 import type { HumanPair, PairScheme, Sample } from "../types.ts";
 import { seededRandom } from "../util/async.ts";
 import { sha256 } from "../util/fs.ts";
@@ -10,6 +10,25 @@ export interface BuildHumanPairsOptions {
   /** 出力する最大ペア数（決定的にシャッフルしてから切る） */
   max?: number;
   seed?: number;
+}
+
+/** 人手評価ペアの検証に必要な項目（HumanPair の部分集合） */
+export type PairForValidation = Pick<HumanPair, "sourceId" | "aSampleId" | "bSampleId" | "aText" | "bText" | "taskTitle" | "audience">;
+
+/**
+ * ペアが現在のサンプル・定義と一致しているか。
+ * 評価者に見せた本文が現在のサンプルと同じで、課題名・想定読者も現在の定義と同じときだけ、そのペアへの投票を使う
+ * （作り直した後の古いペア、題名や読者を直す前に集めた投票を捨てる）。sources を渡さなければ文脈は検査しない
+ */
+export function isCurrentPair(p: PairForValidation, sampleById: Map<string, Sample>, sources?: Map<string, SourceInfo>): boolean {
+  const a = sampleById.get(p.aSampleId);
+  const b = sampleById.get(p.bSampleId);
+  if (a === undefined || b === undefined || a.text !== p.aText || b.text !== p.bText) return false;
+  if (sources) {
+    const src = sources.get(p.sourceId);
+    if (!src || p.taskTitle !== src.title || (p.audience ?? DEFAULT_AUDIENCE) !== (src.audience ?? DEFAULT_AUDIENCE)) return false;
+  }
+  return true;
 }
 
 export function buildHumanPairs(samples: Sample[], opts: BuildHumanPairsOptions): HumanPair[] {

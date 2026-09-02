@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import type { z } from "zod";
 import type { GenerateRequest, GenerateResponse, ModelDef } from "../types.ts";
@@ -75,17 +76,24 @@ export class AnthropicProvider implements Provider {
 
   async generateJson<T>(req: GenerateRequest, schema: z.ZodType<T>, _name: string): Promise<{ value: T; raw: GenerateResponse }> {
     const started = Date.now();
-    const response = await this.client.messages.parse({
-      ...this.baseParams(req),
-      output_config: {
-        ...(this.model.effort ? { effort: this.model.effort } : {}),
-        format: zodOutputFormat(schema),
-      },
-    });
+    const params = this.baseParams(req);
+    const effort = this.model.effort ? { effort: this.model.effort } : {};
+    // fallbacks を有効にしたモデルは、判定（structured output）でも generate と同じ beta のフォールバック経路を通す
+    const response = this.model.fallbacks
+      ? await this.client.beta.messages.parse({
+          ...params,
+          betas: ["server-side-fallback-2026-07-01"],
+          fallbacks: "default",
+          output_config: { ...effort, format: betaZodOutputFormat(schema) },
+        })
+      : await this.client.messages.parse({
+          ...params,
+          output_config: { ...effort, format: zodOutputFormat(schema) },
+        });
     if (response.stop_reason === "refusal") throw new Error("refusal");
     if (!response.parsed_output) throw new Error("structured output の解析に失敗しました");
     return {
-      value: response.parsed_output,
+      value: response.parsed_output as T,
       raw: {
         text: JSON.stringify(response.parsed_output),
         servedBy: response.model,

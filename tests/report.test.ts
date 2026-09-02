@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { summarizeVotes } from "../src/human/aggregate.ts";
-import { buildHumanPairs } from "../src/human/pairs.ts";
+import { buildHumanPairs, isCurrentPair } from "../src/human/pairs.ts";
 import { aggregate, improvementPct, majority } from "../src/report/aggregate.ts";
 import { renderMarkdown } from "../src/report/markdown.ts";
 import type { HumanVote, Judgment, Sample, ScoreRecord } from "../src/types.ts";
@@ -249,6 +249,16 @@ describe("人手評価", () => {
     expect(aggregate({ ...base, sources: new Map([["t1", { id: "t1", title: "課題（改）" }]]) }).counts.humanVotes).toBe(0);
     expect(aggregate({ ...base, sources: new Map([["t1", { id: "t1", title: "課題", audience: "新人" }]]) }).counts.humanVotes).toBe(0);
     expect(aggregate({ ...base, sources: new Map() }).counts.humanVotes).toBe(0); // 定義が消えた
+  });
+  it("isCurrentPair は本文と文脈の両方が現在と一致するペアだけを通す（human-report と report で共通）", () => {
+    const pairs = buildHumanPairs(samples, { schemes: ["interventions"], baselineId: "baseline", sources });
+    const p = pairs.find((x) => x.aSampleId === "m1-fix")!;
+    const byId = new Map(samples.map((s) => [s.id, s]));
+    expect(isCurrentPair(p, byId, sources)).toBe(true);
+    expect(isCurrentPair(p, byId)).toBe(true); // sources なしなら文脈は見ない
+    expect(isCurrentPair(p, new Map(samples.map((s) => [s.id, s.id === "m1-fix" ? { ...s, text: "再生成" } : s])), sources)).toBe(false);
+    expect(isCurrentPair(p, byId, new Map([["t1", { id: "t1", title: "課題（改）" }]]))).toBe(false);
+    expect(isCurrentPair(p, byId, new Map())).toBe(false);
   });
   it("majority は同数なら tie", () => {
     expect(majority(["A", "A", "B"])).toBe("A");

@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { Command } from "commander";
 import { assertRewriteModels, loadAllSources, loadCorpus, loadInterventions, loadModels, loadTasks, parseList, parseSchemes, pick } from "./config.ts";
 import { summarizeVotes } from "./human/aggregate.ts";
-import { buildHumanPairs } from "./human/pairs.ts";
+import { buildHumanPairs, isCurrentPair } from "./human/pairs.ts";
 import { createHumanEvalServer } from "./human/server.ts";
 import { buildPairs, contextHashOf, judgeConfigHashOf, judgePairwise, judgeRubric, type SourceInfo } from "./judge/index.ts";
 import { scoreSample, scoringHashOf } from "./metrics/index.ts";
@@ -402,7 +402,12 @@ program
   .action((o: { run: string }) => {
     const f = files(o.run);
     if (!existsSync(f.pairs)) throw new Error(`run "${o.run}" に pairs.json がありません。先に \`bench pairs --run ${o.run}\` を実行してください`);
-    const pairs = readJson<HumanPair[]>(f.pairs);
+    // report と同じ基準で、現在のサンプル・定義と一致するペアだけを集計する（作り直し後の古いペアや古い文脈の投票を混ぜない）
+    const sampleById = new Map(loadSamples(o.run).map((s) => [s.id, s]));
+    const sources = sourceInfos();
+    const allPairs = readJson<HumanPair[]>(f.pairs);
+    const pairs = allPairs.filter((p) => isCurrentPair(p, sampleById, sources));
+    if (pairs.length < allPairs.length) log(`注意: ${allPairs.length - pairs.length} ペアは現在のサンプル・定義と一致しないため除外しました（\`bench pairs\` で作り直せます）`);
     const votes = readJsonl<HumanVote>(f.votes);
     const summary = summarizeVotes(pairs, votes);
     writeJson(f.humanSummary, summary);

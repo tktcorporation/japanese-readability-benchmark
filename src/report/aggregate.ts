@@ -1,5 +1,6 @@
 import { HEADLINE_METRICS, METRIC_DIRECTION } from "../metrics/index.ts";
-import { DEFAULT_AUDIENCE, type SourceInfo } from "../judge/index.ts";
+import { isCurrentPair } from "../human/pairs.ts";
+import type { SourceInfo } from "../judge/index.ts";
 import type { HumanPair, HumanVote, Judgment, PairScheme, PairVerdict, PairwiseJudgment, RubricJudgment, Sample, ScoreRecord } from "../types.ts";
 import { mean, round, stddev } from "../util/async.ts";
 
@@ -203,13 +204,9 @@ export function aggregate(input: AggregateInput): Report {
   // sources を渡したときは、評価者に見せた課題名・想定読者が現在の定義と一致することも求める
   // （本文が同じまま課題名だけ直した場合も、古い文脈で集めた投票は使わない）
   const validPairs = (input.humanPairs ?? []).filter((p) => {
-    const a = sampleById.get(p.aSampleId);
-    const b = sampleById.get(p.bSampleId);
-    if (a === undefined || b === undefined || a.text !== p.aText || b.text !== p.bText) return false;
-    if (input.sources) {
-      const src = input.sources.get(p.sourceId);
-      if (!src || p.taskTitle !== src.title || (p.audience ?? DEFAULT_AUDIENCE) !== (src.audience ?? DEFAULT_AUDIENCE)) return false;
-    }
+    if (!isCurrentPair(p, sampleById, input.sources)) return false;
+    const a = sampleById.get(p.aSampleId)!;
+    const b = sampleById.get(p.bSampleId)!;
     // 介入比較のペアは B が、モデル比較のペアは A・B の両方が、選択中の baseline であること
     return p.scheme === "interventions"
       ? b.interventionId === baselineId
