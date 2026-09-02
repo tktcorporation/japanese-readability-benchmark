@@ -69,6 +69,23 @@ describe("aggregate", () => {
     expect(fix.judgeWinRate).toMatchObject({ wins: 1, ties: 1, n: 2, rate: 0.75 });
     expect(fix.improvementPct?.textlintPer1k).toBeCloseTo(35.7, 0);
   });
+  it("判定モデルが複数あるときは 1 つに絞って集計する", () => {
+    const other: Judgment[] = [
+      { kind: "rubric", sampleId: "m1-base", judgeModel: "z", promptVersion: "v", createdAt: "", rationale: "", scores: { readability: 5, clarity: 5, naturalness: 5, concision: 5, structure: 5, overall: 5 } },
+      { kind: "pairwise", scheme: "models", sourceId: "t1", aSampleId: "m1-base", bSampleId: "m2-base", judgeModel: "z", promptVersion: "v", verdictAB: "A", verdictBA: "A", verdict: "A", rationale: "", createdAt: "" },
+    ];
+    const mixed = aggregate({ runId: "r", samples, scores, judgments: [...judgments, ...other] });
+    expect(mixed.judgeModels).toEqual(["j", "z"]);
+    expect(mixed.judgeModel).toBe("j");
+    expect(mixed.models.find((m) => m.modelId === "m1")?.metrics.judgeOverall?.mean).toBe(2);
+    expect(mixed.counts.pairwise).toBe(3);
+
+    const z = aggregate({ runId: "r", samples, scores, judgments: [...judgments, ...other], judgeModel: "z" });
+    expect(z.models.find((m) => m.modelId === "m1")?.metrics.judgeOverall?.mean).toBe(5);
+    expect(z.models.find((m) => m.modelId === "m1")?.judgeWinRate).toMatchObject({ wins: 1, n: 1 });
+    expect(renderMarkdown(z)).toContain("他に j の判定あり");
+    expect(() => aggregate({ runId: "r", samples, scores, judgments, judgeModel: "nope" })).toThrow();
+  });
   it("ルール別の違反数を介入ごとに合計する", () => {
     expect(report.ruleCounts.baseline?.["x/a"]).toBe(2);
     expect(report.ruleCounts["textlint-fix"]?.["x/a"]).toBe(1);

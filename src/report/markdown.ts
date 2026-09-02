@@ -88,7 +88,10 @@ export function renderMarkdown(report: Report): string {
   out.push("");
   out.push(`生成日時: ${report.generatedAt}  `);
   out.push(`サンプル: ${report.counts.samples}（エラー ${report.counts.errors}） / 自動指標: ${report.counts.scores} / LLM採点: ${report.counts.rubric} / LLM比較: ${report.counts.pairwise} / 人手投票: ${report.counts.humanVotes}`);
-  if (report.judgeModel) out.push(`判定モデル: ${report.judgeModel}`);
+  if (report.judgeModel) {
+    const others = report.judgeModels.filter((m) => m !== report.judgeModel);
+    out.push(`判定モデル: ${report.judgeModel}${others.length ? `（他に ${others.join(", ")} の判定あり。\`--judge\` で切り替え）` : ""}`);
+  }
   out.push("");
   out.push("矢印は望ましい方向（↓ 小さいほど良い / ↑ 大きいほど良い）。介入の表の括弧内は baseline に対する改善率。");
   out.push("");

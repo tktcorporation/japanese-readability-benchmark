@@ -166,6 +166,8 @@ export interface TextlintMessage {
 
 export interface ScoreRecord {
   sampleId: string;
+  /** 採点時点の本文ハッシュ。サンプルが再生成されたら不一致になり、記録は捨てられる */
+  textHash?: string;
   sourceId: string;
   modelId: string;
   interventionId: string;
@@ -187,6 +189,8 @@ export interface RubricScores {
 export interface RubricJudgment {
   kind: "rubric";
   sampleId: string;
+  /** 判定時点の本文ハッシュ */
+  textHash?: string;
   judgeModel: string;
   promptVersion: string;
   scores: RubricScores;
@@ -205,6 +209,9 @@ export interface PairwiseJudgment {
   sourceId: string;
   aSampleId: string;
   bSampleId: string;
+  /** 判定時点の本文ハッシュ */
+  aTextHash?: string;
+  bTextHash?: string;
   judgeModel: string;
   promptVersion: string;
   /** A を先に見せたときの判定 */

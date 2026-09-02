@@ -7,11 +7,13 @@ import { buildHumanPairs } from "./human/pairs.ts";
 import { createHumanEvalServer } from "./human/server.ts";
 import { buildPairs, judgePairwise, judgeRubric, type SourceInfo } from "./judge/index.ts";
 import { scoreSample } from "./metrics/index.ts";
+import { PAIRWISE_PROMPT_VERSION, RUBRIC_PROMPT_VERSION } from "./judge/prompts.ts";
 import { corpusSource, needsModelForCorpus, runCell, sampleId, taskSource, type Source } from "./pipeline/run.ts";
 import { createProvider } from "./providers/index.ts";
 import { aggregate } from "./report/aggregate.ts";
 import { renderMarkdown } from "./report/markdown.ts";
-import type { HumanPair, HumanVote, Judgment, ModelDef, PairScheme, PairwiseJudgment, RubricJudgment, Sample, ScoreRecord } from "./types.ts";
+import { loadJudgments, loadSamples as loadSamplesFile, loadScores } from "./store.ts";
+import type { HumanPair, HumanVote, ModelDef, PairScheme, PairwiseJudgment, RubricJudgment, Sample } from "./types.ts";
 import { mapLimit } from "./util/async.ts";
 import { appendJsonl, ensureDir, readJson, readJsonl, repoPath, writeJson, writeText } from "./util/fs.ts";
 
@@ -38,11 +40,13 @@ function files(runId: string) {
 }
 
 function loadSamples(runId: string): Sample[] {
-  const all = readJsonl<Sample>(files(runId).samples);
-  // 同じ id が複数あれば後勝ち（--force での再実行）
-  const byId = new Map<string, Sample>();
-  for (const s of all) byId.set(s.id, s);
-  return Array.from(byId.values());
+  return loadSamplesFile(files(runId).samples);
+}
+
+/** 採点・判定を読む。再生成で本文が変わったサンプルの記録は除外される */
+function loadDerived(runId: string, samples: Sample[]) {
+  const f = files(runId);
+  return { scores: loadScores(f.scores, samples), judgments: loadJudgments(f.judgments, samples) };
 }
 
 function sourceInfos(): Map<string, SourceInfo> {
@@ -141,8 +145,10 @@ program
   .option("--force", "計算済みも再計算", false)
   .action(async (o: { run: string; concurrency: string; force: boolean }) => {
     const f = files(o.run);
-    const samples = loadSamples(o.run).filter((s) => !s.error && s.text.length > 0);
-    const done = new Set(o.force ? [] : readJsonl<ScoreRecord>(f.scores).map((s) => s.sampleId));
+    const all = loadSamples(o.run);
+    const samples = all.filter((s) => !s.error && s.text.length > 0);
+    // 本文が変わったサンプルの古い採点は loadScores が除外するので、自動的に再採点される
+    const done = new Set(o.force ? [] : loadDerived(o.run, all).scores.map((s) => s.sampleId));
     const todo = samples.filter((s) => !done.has(s.id));
     log(`${todo.length} 件を採点します（スキップ ${done.size}）`);
     await mapLimit(todo, Number(o.concurrency), async (s) => {
@@ -173,15 +179,21 @@ program
     const cacheDir = o.cache ? repoPath("results", "cache", "judge") : undefined;
     if (cacheDir) ensureDir(cacheDir);
     const sources = sourceInfos();
-    const samples = loadSamples(o.run).filter((s) => !s.error && s.text.length > 0);
-    const existing = readJsonl<Judgment>(f.judgments);
+    const all = loadSamples(o.run);
+    const samples = all.filter((s) => !s.error && s.text.length > 0);
+    // 本文が変わったサンプルの古い判定は除外済み。プロンプトの版が変わった判定も未完了として扱う
+    const existing = loadDerived(o.run, all).judgments;
     const limit = o.limit ? Number(o.limit) : Infinity;
     const concurrency = Number(o.concurrency);
     let budget = limit;
 
     if (o.mode === "rubric" || o.mode === "both") {
       const done = new Set(
-        existing.filter((j): j is RubricJudgment => j.kind === "rubric" && j.judgeModel === judgeModel.id).map((j) => j.sampleId),
+        existing
+          .filter(
+            (j): j is RubricJudgment => j.kind === "rubric" && j.judgeModel === judgeModel.id && j.promptVersion === RUBRIC_PROMPT_VERSION,
+          )
+          .map((j) => j.sampleId),
       );
       const todo = samples.filter((s) => !done.has(s.id)).slice(0, budget);
       budget -= todo.length;
@@ -201,7 +213,10 @@ program
       const schemes = (parseList(o.schemes) ?? []) as PairScheme[];
       const done = new Set(
         existing
-          .filter((j): j is PairwiseJudgment => j.kind === "pairwise" && j.judgeModel === judgeModel.id)
+          .filter(
+            (j): j is PairwiseJudgment =>
+              j.kind === "pairwise" && j.judgeModel === judgeModel.id && j.promptVersion === PAIRWISE_PROMPT_VERSION,
+          )
           .map((j) => `${j.scheme}|${j.aSampleId}|${j.bSampleId}`),
       );
       const pairs = schemes.flatMap((scheme) => buildPairs(samples, scheme, o.baseline)).filter((p) => !done.has(`${p.scheme}|${p.a.id}|${p.b.id}`)).slice(0, Math.max(0, budget));
@@ -226,14 +241,17 @@ program
   .description("集計して report.md / report.json を書き出す")
   .requiredOption("--run <id>")
   .option("--baseline <id>", "基準となる介入 id", "baseline")
-  .action((o: { run: string; baseline: string }) => {
+  .option("--judge <modelId>", "集計に使う判定モデル id（複数の判定モデルで judge したとき）")
+  .action((o: { run: string; baseline: string; judge?: string }) => {
     const f = files(o.run);
     const samples = loadSamples(o.run);
-    const scores = readJsonl<ScoreRecord>(f.scores);
-    const judgments = readJsonl<Judgment>(f.judgments);
+    const { scores, judgments } = loadDerived(o.run, samples);
     const humanVotes = readJsonl<HumanVote>(f.votes);
     const humanPairs = existsSync(f.pairs) ? readJson<HumanPair[]>(f.pairs) : undefined;
-    const report = aggregate({ runId: o.run, samples, scores, judgments, humanVotes, humanPairs, baselineId: o.baseline });
+    const report = aggregate({ runId: o.run, samples, scores, judgments, humanVotes, humanPairs, baselineId: o.baseline, judgeModel: o.judge });
+    if (report.judgeModels.length > 1 && !o.judge) {
+      log(`注意: 判定モデルが複数あります（${report.judgeModels.join(", ")}）。${report.judgeModel} で集計しました。--judge で切り替えられます`);
+    }
     writeJson(f.reportJson, report);
     const md = renderMarkdown(report);
     writeText(f.reportMd, md);
@@ -314,14 +332,15 @@ program
   .requiredOption("--run <id>")
   .requiredOption("--sample <sampleId>")
   .action((o: { run: string; sample: string }) => {
-    const f = files(o.run);
-    const s = loadSamples(o.run).find((x) => x.id === o.sample);
+    const all = loadSamples(o.run);
+    const s = all.find((x) => x.id === o.sample);
     if (!s) {
       log("サンプルが見つかりません");
       process.exitCode = 1;
       return;
     }
-    const score = readJsonl<ScoreRecord>(f.scores).find((x) => x.sampleId === s.id);
+    const derived = loadDerived(o.run, all);
+    const score = derived.scores.find((x) => x.sampleId === s.id);
     console.log(`# ${s.id}\n`);
     if (s.inputText) console.log(`## 介入前\n\n${s.inputText}\n`);
     console.log(`## 本文\n\n${s.text}\n`);
@@ -333,7 +352,7 @@ program
         for (const m of score.textlintMessages) console.log(`- L${m.line}:${m.column} ${m.ruleId}: ${m.message.split("\n")[0]}`);
       }
     }
-    const judgments = readJsonl<Judgment>(f.judgments).filter((j) => j.kind === "rubric" && j.sampleId === s.id);
+    const judgments = derived.judgments.filter((j) => j.kind === "rubric" && j.sampleId === s.id);
     for (const j of judgments) {
       if (j.kind !== "rubric") continue;
       console.log(`\n## LLM 採点 (${j.judgeModel})\n`);

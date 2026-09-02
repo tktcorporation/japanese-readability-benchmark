@@ -45,7 +45,7 @@ async function readBody(req: IncomingMessage): Promise<string> {
 /**
  * 人手評価用の小さな HTTP サーバー。
  * - GET  /api/pairs?rater=ID   まだその評価者が答えていないペアを返す（本文は含む）
- * - POST /api/vote             投票を votes.jsonl に追記
+ * - POST /api/vote             投票を votes.jsonl に追記（同じ評価者の同じペアへの再投票は 409）
  * - GET  /api/stats            投票数の概要
  * - それ以外                    web/ 配下の静的ファイル
  */
@@ -73,6 +73,11 @@ export function createHumanEvalServer(opts: ServeOptions) {
         }
         if (!byId.has(parsed.data.pairId)) {
           json(res, 404, { error: "unknown pair" });
+          return;
+        }
+        const { pairId, raterId } = parsed.data;
+        if (readJsonl<HumanVote>(opts.votesFile).some((v) => v.raterId === raterId && v.pairId === pairId)) {
+          json(res, 409, { error: "already voted" });
           return;
         }
         const vote: HumanVote = { ...parsed.data, createdAt: new Date().toISOString() };

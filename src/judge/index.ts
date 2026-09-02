@@ -50,6 +50,7 @@ export async function judgeRubric(sample: Sample, source: SourceInfo, opts: Judg
   return {
     kind: "rubric",
     sampleId: sample.id,
+    textHash: sha256(sample.text),
     judgeModel,
     promptVersion: RUBRIC_PROMPT_VERSION,
     scores,
@@ -97,6 +98,8 @@ export async function judgePairwise(
     sourceId: source.id,
     aSampleId: a.id,
     bSampleId: b.id,
+    aTextHash: sha256(a.text),
+    bTextHash: sha256(b.text),
     judgeModel,
     promptVersion: PAIRWISE_PROMPT_VERSION,
     verdictAB,

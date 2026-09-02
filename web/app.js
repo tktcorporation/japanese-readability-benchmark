@@ -28,6 +28,8 @@
   let current = null;
   let leftWasA = true;
   let shownAt = 0;
+  // 送信中はボタンもキー入力も受け付けない（二重投票の防止）
+  let pending = false;
 
   function setProgress() {
     const done = total - queue.length - (current ? 1 : 0);
@@ -57,7 +59,8 @@
   }
 
   async function vote(side) {
-    if (!current) return;
+    if (!current || pending) return;
+    pending = true;
     const choice = side === "tie" ? "tie" : (side === "left") === leftWasA ? "A" : "B";
     const buttons = document.querySelectorAll(".choice");
     for (const b of buttons) b.disabled = true;
@@ -74,12 +77,18 @@
           seconds: Math.round((Date.now() - shownAt) / 1000),
         }),
       });
+      if (res.status === 409) {
+        // すでに記録済み（別タブなど）。次へ進む
+        show();
+        return;
+      }
       if (!res.ok) throw new Error(await res.text());
       answered += 1;
       show();
     } catch (err) {
       alert("送信に失敗しました: " + err.message);
     } finally {
+      pending = false;
       for (const b of buttons) b.disabled = false;
     }
   }

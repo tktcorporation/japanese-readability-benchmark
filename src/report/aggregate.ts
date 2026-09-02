@@ -47,7 +47,10 @@ export interface Report {
   runId: string;
   generatedAt: string;
   baselineId: string;
+  /** この集計に使った判定モデル */
   judgeModel?: string;
+  /** run に含まれる判定モデル一覧。複数あれば judgeModel 以外は集計から除外している */
+  judgeModels: string[];
   counts: { samples: number; errors: number; scores: number; rubric: number; pairwise: number; humanVotes: number };
   metricKeys: string[];
   /** baseline 介入におけるモデル比較 */
@@ -71,6 +74,8 @@ export interface AggregateInput {
   /** pairId -> {a,b} の対応（人手評価用） */
   humanPairs?: { id: string; scheme: PairScheme; aSampleId: string; bSampleId: string }[];
   baselineId?: string;
+  /** 集計に使う判定モデル。省略時は run 内で最初に見つかったもの */
+  judgeModel?: string;
 }
 
 const JUDGE_METRIC_KEYS: Record<keyof RubricJudgment["scores"], string> = {
@@ -137,7 +142,14 @@ function metricRows(scores: ScoreRecord[], judgments: Judgment[]): Map<string, R
 
 export function aggregate(input: AggregateInput): Report {
   const baselineId = input.baselineId ?? "baseline";
-  const { samples, scores, judgments } = input;
+  const { samples, scores } = input;
+  // 判定モデルが複数混在する run では 1 つに絞る（異なる判定者の票を合算しない）
+  const judgeModels = Array.from(new Set(input.judgments.map((j) => j.judgeModel))).sort();
+  const judgeModel = input.judgeModel ?? judgeModels[0];
+  if (input.judgeModel && !judgeModels.includes(input.judgeModel)) {
+    throw new Error(`判定モデル "${input.judgeModel}" の判定がありません。候補: ${judgeModels.join(", ") || "(なし)"}`);
+  }
+  const judgments = input.judgments.filter((j) => j.judgeModel === judgeModel);
   const sampleById = new Map(samples.map((s) => [s.id, s]));
   const rows = metricRows(scores, judgments);
   const metricKeys = Array.from(new Set([...HEADLINE_METRICS, ...Array.from(rows.values()).flatMap((r) => Object.keys(r))]));
@@ -303,12 +315,12 @@ export function aggregate(input: AggregateInput): Report {
     for (const [rule, n] of Object.entries(sc.textlintRules)) bucket[rule] = (bucket[rule] ?? 0) + n;
   }
 
-  const judgeModel = judgments[0]?.judgeModel;
   return {
     runId: input.runId,
     generatedAt: new Date().toISOString(),
     baselineId,
     judgeModel,
+    judgeModels,
     counts: {
       samples: samples.length,
       errors: samples.filter((s) => s.error).length,

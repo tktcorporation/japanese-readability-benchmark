@@ -1,4 +1,5 @@
 import type { Sample, ScoreRecord } from "../types.ts";
+import { sha256 } from "../util/fs.ts";
 import { surfaceMetrics } from "./surface.ts";
 import { lintText } from "./textlint.ts";
 
@@ -49,6 +50,7 @@ export async function scoreSample(sample: Sample, textlintConfig?: string): Prom
   };
   return {
     sampleId: sample.id,
+    textHash: sha256(sample.text),
     sourceId: sample.sourceId,
     modelId: sample.modelId,
     interventionId: sample.interventionId,
