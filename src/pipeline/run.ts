@@ -17,6 +17,11 @@ export function corpusSource(c: CorpusDoc): Source {
   return { type: "corpus", id: c.id, title: c.title, text: c.text, audience: c.audience };
 }
 
+/** 入力（タスクならプロンプト、コーパスなら原文）のハッシュ。サンプルの鮮度判定に使う */
+export function sourceHash(source: Source): string {
+  return sha256(source.type === "corpus" ? source.text : source.prompt);
+}
+
 export interface RunOptions {
   runId: string;
   /** 全モデル定義（rewrite ステップの model 解決用） */
@@ -89,7 +94,7 @@ export function sampleId(sourceId: string, modelId: string, interventionId: stri
 
 /**
  * コーパス起点のとき、この介入にモデルが必要か。
- * generate ステップは飛ばされるので、モデル未指定の rewrite があるときだけ必要。
+ * generate ステップは飛ばされる（reuse は参照先を使う）ので、モデル未指定の rewrite があるときだけ必要。
  */
 export function needsModelForCorpus(intervention: InterventionDef): boolean {
   return intervention.steps.some((s) => s.type === "rewrite" && !s.model);
@@ -128,7 +133,7 @@ export async function runCell(
     text: "",
     steps: [],
     createdAt: new Date().toISOString(),
-    ...(source.type === "corpus" ? { inputHash: sha256(source.text) } : {}),
+    inputHash: sourceHash(source),
   };
   const audience = source.audience ?? "一般的な読者";
   let text: string | undefined = source.type === "corpus" ? source.text : undefined;
@@ -175,19 +180,23 @@ interface StepContext {
 async function executeStep(step: StepDef, ctx: StepContext): Promise<{ trace: StepTrace; text?: string }> {
   switch (step.type) {
     case "generate": {
-      if (ctx.source.type === "corpus") return { trace: { type: "generate", skipped: true, ms: 0 } };
-      if (!ctx.model) throw new Error("generate ステップにはモデルが必要です");
       if (step.reuse) {
-        // 同じセルの別介入（通常は baseline）の出力をそのまま使う。生成のばらつきを介入効果に混ぜない
-        const prior = ctx.opts.lookup?.(ctx.source.id, ctx.model.id, step.reuse, ctx.index);
+        // 同じセルの別介入（通常は baseline）の出力をそのまま使う。生成のばらつきを介入効果に混ぜない。
+        // コーパス起点で参照先がモデルを持たない介入（textlint-fix など）なら "none" のセルも探す
+        const modelId = ctx.model?.id ?? "none";
+        const prior =
+          ctx.opts.lookup?.(ctx.source.id, modelId, step.reuse, ctx.index) ??
+          (ctx.source.type === "corpus" && modelId !== "none" ? ctx.opts.lookup?.(ctx.source.id, "none", step.reuse, ctx.index) : undefined);
         if (!prior || prior.error || !prior.text) {
           throw new Error(`再利用する介入 "${step.reuse}" のサンプルがありません。先に ${step.reuse} を同じ run で実行してください`);
         }
         return {
-          trace: { type: "generate", ms: 0, modelId: ctx.model.id, reusedFrom: prior.id, reusedHash: sha256(prior.text) },
+          trace: { type: "generate", ms: 0, modelId: ctx.model?.id, reusedFrom: prior.id, reusedHash: sha256(prior.text) },
           text: prior.text,
         };
       }
+      if (ctx.source.type === "corpus") return { trace: { type: "generate", skipped: true, ms: 0 } };
+      if (!ctx.model) throw new Error("generate ステップにはモデルが必要です");
       const provider = createProvider(ctx.model);
       const system = step.system ? readText(resolve(ctx.intervention.dir, step.system)) : undefined;
       const prompt = [step.promptPrefix, ctx.source.prompt, step.promptSuffix].filter(Boolean).join("\n\n");

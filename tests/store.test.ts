@@ -77,17 +77,40 @@ describe("store", () => {
     expect(loadSamples(file).find((s) => s.id === "b")?.error).toBe("API error");
   });
 
-  it("コーパス起点のサンプルは原文が編集・削除されたら捨てる", () => {
-    const file = join(dir, "corpus.jsonl");
+  it("タスクのプロンプトやコーパスの原文が編集・削除されたらサンプルを捨てる", () => {
+    const file = join(dir, "sources.jsonl");
     const doc = "原文。";
+    const prompt = "書いて。";
     const orig = { ...sample("c__none__baseline__0", doc), sourceType: "corpus" as const, sourceId: "c", inputHash: sha256(doc) };
     const rw = { ...sample("c__m__rewrite-pass__0", "書き直し。"), sourceType: "corpus" as const, sourceId: "c", inputHash: sha256(doc) };
     const legacy = { ...sample("c__none__textlint-fix__0", "修正。"), sourceType: "corpus" as const, sourceId: "c" }; // inputHash なし
-    for (const s of [orig, rw, legacy]) appendJsonl(file, s);
-    expect(loadSamples(file).map((s) => s.id)).toHaveLength(3); // corpusHashes を渡さなければ検査しない
-    expect(loadSamples(file, { corpusHashes: new Map([["c", sha256(doc)]]) }).map((s) => s.id)).toEqual([orig.id, rw.id]);
-    expect(loadSamples(file, { corpusHashes: new Map([["c", sha256("編集した原文。")]]) })).toEqual([]);
-    expect(loadSamples(file, { corpusHashes: new Map() })).toEqual([]);
+    const task = { ...sample("t__m__baseline__0", "生成。"), sourceId: "t", inputHash: sha256(prompt) };
+    for (const s of [orig, rw, legacy, task]) appendJsonl(file, s);
+    expect(loadSamples(file)).toHaveLength(4); // sourceHashes を渡さなければ検査しない
+    const current = new Map([["c", sha256(doc)], ["t", sha256(prompt)]]);
+    expect(loadSamples(file, { sourceHashes: current }).map((s) => s.id)).toEqual([orig.id, rw.id, task.id]);
+    // プロンプトを編集
+    expect(loadSamples(file, { sourceHashes: new Map([["c", sha256(doc)], ["t", sha256("別の指示。")]]) }).map((s) => s.id)).toEqual([orig.id, rw.id]);
+    // 原文を編集
+    expect(loadSamples(file, { sourceHashes: new Map([["c", sha256("編集した原文。")], ["t", sha256(prompt)]]) }).map((s) => s.id)).toEqual([task.id]);
+    // 定義が消えた
+    expect(loadSamples(file, { sourceHashes: new Map() })).toEqual([]);
+  });
+
+  it("課題名・想定読者が変わった判定は捨てる（contextHashes を渡したとき）", () => {
+    const sFile = join(dir, "ctx-samples.jsonl");
+    const jFile = join(dir, "ctx-judgments.jsonl");
+    const a = sample("a", "本文A。");
+    const b = sample("b", "本文B。");
+    appendJsonl(sFile, a);
+    appendJsonl(sFile, b);
+    appendJsonl(jFile, { ...rubric("a", sha256(a.text), 3), contextHash: "ctx-v1" });
+    appendJsonl(jFile, { ...pairwise(a, b), contextHash: "ctx-v1" });
+    appendJsonl(jFile, rubric("b", sha256(b.text), 2)); // contextHash なし
+    const samples = loadSamples(sFile);
+    expect(loadJudgments(jFile, samples)).toHaveLength(3);
+    expect(loadJudgments(jFile, samples, { contextHashes: new Map([["t", "ctx-v1"]]) })).toHaveLength(2);
+    expect(loadJudgments(jFile, samples, { contextHashes: new Map([["t", "ctx-v2"]]) })).toHaveLength(0);
   });
 
   it("失敗した再実行は、同じ本文でも採点・判定の鮮度の根拠にならない", () => {

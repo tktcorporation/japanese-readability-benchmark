@@ -82,6 +82,13 @@
         show();
         return;
       }
+      if (res.status === 403) {
+        // 評価者ごとの上限に達した（別タブで回答済みなど）。終了画面へ
+        queue = [];
+        current = null;
+        show();
+        return;
+      }
       if (!res.ok) throw new Error(await res.text());
       answered += 1;
       show();

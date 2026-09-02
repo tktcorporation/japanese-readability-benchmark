@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { loadModels } from "../src/config.ts";
-import { buildPairs, combineVerdicts, flipVerdict, judgePairwise, judgeRubric } from "../src/judge/index.ts";
+import { buildPairs, combineVerdicts, contextHashOf, flipVerdict, judgePairwise, judgeRubric } from "../src/judge/index.ts";
 import { createProvider } from "../src/providers/index.ts";
 import { loadFixture } from "../src/providers/mock.ts";
 import type { Sample } from "../src/types.ts";
@@ -81,6 +81,8 @@ describe("mock judge", () => {
   it("rubric は 1-5 の整数を返す", async () => {
     const j = await judgeRubric(plain, src, { provider: judge });
     expect(j.kind).toBe("rubric");
+    expect(j.contextHash).toBe(contextHashOf(src));
+    expect(contextHashOf(src)).not.toBe(contextHashOf({ ...src, audience: "新人" }));
     for (const v of Object.values(j.scores)) {
       expect(Number.isInteger(v)).toBe(true);
       expect(v).toBeGreaterThanOrEqual(1);

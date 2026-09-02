@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { idSchema, loadCorpus, loadInterventions, loadModels, loadTasks, parseCorpusDoc } from "../src/config.ts";
 import { surfaceMetrics } from "../src/metrics/surface.ts";
-import { corpusSource, dependentsOf, needsModelForCorpus, renderTemplate, reuseLevels, reusesIntervention, runCell, sampleId, taskSource } from "../src/pipeline/run.ts";
+import { corpusSource, dependentsOf, needsModelForCorpus, renderTemplate, reuseLevels, reusesIntervention, runCell, sampleId, sourceHash, taskSource } from "../src/pipeline/run.ts";
 import type { InterventionDef, Sample } from "../src/types.ts";
 
 const { models } = loadModels();
@@ -137,6 +137,29 @@ describe("runCell (mock)", () => {
     expect(rewritten.error).toBeUndefined();
     expect(rewritten.text).not.toBe(doc.text);
     expect(rewritten.inputText).toBe(doc.text);
+    // reuse: baseline は原文（"none" のセル）を参照し、その本文ハッシュを記録する
+    expect(rewritten.steps[0]).toMatchObject({ type: "generate", reusedFrom: base.id });
+  });
+  it("コーパス起点でも reuse は原文ではなく参照先の出力から始める", async () => {
+    const doc = loadCorpus()[0]!;
+    const corpus = corpusSource(doc);
+    await run(corpus, undefined, "baseline");
+    const fixed = await run(corpus, undefined, "textlint-fix");
+    const chained: InterventionDef = {
+      id: "after-fix",
+      name: "textlint-fix の出力を書き直す",
+      dir: byId("rewrite-pass").dir,
+      steps: [{ type: "generate", reuse: "textlint-fix" }, { type: "rewrite", prompt: "prompts/rewrite.md" }],
+    };
+    const s = await runCell(corpus, mockVerbose, chained, 0, opts);
+    expect(s.error).toBeUndefined();
+    expect(s.steps[0]).toMatchObject({ type: "generate", reusedFrom: fixed.id });
+    expect(s.inputText).toBe(fixed.text);
+  });
+  it("タスク起点のサンプルはプロンプトのハッシュを持つ", async () => {
+    const s = await run(task, mockVerbose, "baseline");
+    expect(s.inputHash).toBe(sourceHash(task));
+    expect(sourceHash(task)).not.toBe(sourceHash(taskSource({ ...loadTasks()[0]!, prompt: "別の指示" })));
   });
   it("needsModelForCorpus はモデル未指定の rewrite があるときだけ true", () => {
     expect(needsModelForCorpus(byId("baseline"))).toBe(false);

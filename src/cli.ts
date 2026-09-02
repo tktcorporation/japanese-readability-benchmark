@@ -5,10 +5,10 @@ import { loadCorpus, loadInterventions, loadModels, loadTasks, parseList, pick }
 import { summarizeVotes } from "./human/aggregate.ts";
 import { buildHumanPairs } from "./human/pairs.ts";
 import { createHumanEvalServer } from "./human/server.ts";
-import { buildPairs, judgePairwise, judgeRubric, type SourceInfo } from "./judge/index.ts";
+import { buildPairs, contextHashOf, judgePairwise, judgeRubric, type SourceInfo } from "./judge/index.ts";
 import { scoreSample } from "./metrics/index.ts";
 import { PAIRWISE_PROMPT_VERSION, RUBRIC_PROMPT_VERSION } from "./judge/prompts.ts";
-import { corpusSource, dependentsOf, needsModelForCorpus, reuseLevels, runCell, sampleId, taskSource, type Source } from "./pipeline/run.ts";
+import { corpusSource, dependentsOf, needsModelForCorpus, reuseLevels, runCell, sampleId, sourceHash, taskSource, type Source } from "./pipeline/run.ts";
 import { createProvider } from "./providers/index.ts";
 import { aggregate } from "./report/aggregate.ts";
 import { renderMarkdown } from "./report/markdown.ts";
@@ -16,7 +16,7 @@ import { loadJudgments, loadSamples as loadSamplesFile, loadScores } from "./sto
 import type { HumanPair, HumanVote, ModelDef, PairScheme, PairwiseJudgment, RubricJudgment, Sample } from "./types.ts";
 import { mapLimit } from "./util/async.ts";
 import { loadDotenv } from "./util/env.ts";
-import { appendJsonl, ensureDir, readJson, readJsonl, repoPath, sha256, writeJson, writeText } from "./util/fs.ts";
+import { appendJsonl, ensureDir, readJson, readJsonl, repoPath, writeJson, writeText } from "./util/fs.ts";
 
 // .env があれば読む（すでに設定済みの環境変数は上書きしない）
 loadDotenv(repoPath(".env"));
@@ -55,10 +55,17 @@ function files(runId: string) {
   };
 }
 
-/** サンプルを読む。コーパスが編集・削除されていれば、そのコーパス起点のサンプルは陳腐化として除外される */
+/** 現在の入力ハッシュ（タスクはプロンプト、コーパスは原文） */
+function sourceHashes(): Map<string, string> {
+  return new Map([
+    ...loadTasks().map((t): [string, string] => [t.id, sourceHash(taskSource(t))]),
+    ...loadCorpus().map((c): [string, string] => [c.id, sourceHash(corpusSource(c))]),
+  ]);
+}
+
+/** サンプルを読む。タスクやコーパスの定義が編集・削除されていれば、そのサンプルは陳腐化として除外される */
 function loadSamples(runId: string): Sample[] {
-  const corpusHashes = new Map(loadCorpus().map((c) => [c.id, sha256(c.text)]));
-  return loadSamplesFile(files(runId).samples, { corpusHashes });
+  return loadSamplesFile(files(runId).samples, { sourceHashes: sourceHashes() });
 }
 
 function parsePositiveInt(name: string, value: string): number {
@@ -73,10 +80,11 @@ function parseNonNegativeInt(name: string, value: string): number {
   return n;
 }
 
-/** 採点・判定を読む。再生成で本文が変わったサンプルの記録は除外される */
+/** 採点・判定を読む。本文が変わったサンプルの記録や、課題名・想定読者が変わった判定は除外される */
 function loadDerived(runId: string, samples: Sample[]) {
   const f = files(runId);
-  return { scores: loadScores(f.scores, samples), judgments: loadJudgments(f.judgments, samples) };
+  const contextHashes = new Map(Array.from(sourceInfos().values()).map((s) => [s.id, contextHashOf(s)]));
+  return { scores: loadScores(f.scores, samples), judgments: loadJudgments(f.judgments, samples, { contextHashes }) };
 }
 
 function sourceInfos(): Map<string, SourceInfo> {

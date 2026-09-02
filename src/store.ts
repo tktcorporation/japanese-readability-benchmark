@@ -15,14 +15,17 @@ import { readJsonl, sha256 } from "./util/fs.ts";
  */
 
 export interface LoadSamplesOptions {
-  /** コーパス id → 現在の原文ハッシュ。渡すと、原文が変わった（または消えた）コーパス起点のサンプルを捨てる */
-  corpusHashes?: Map<string, string>;
+  /**
+   * source id → 現在の入力ハッシュ（タスクはプロンプト、コーパスは原文）。
+   * 渡すと、入力が変わった（または定義が消えた）サンプルを捨てる
+   */
+  sourceHashes?: Map<string, string>;
 }
 
 /**
  * 同じ id は後勝ち。次のサンプルは陳腐化として捨てる（run で選択されれば作り直され、report には載らない）:
  *   - 他の介入の出力を再利用したが、再利用元が失敗して存在しない、または本文が変わっている（連鎖は再帰的に辿る）
- *   - コーパス起点で、原文が編集された・削除された（corpusHashes を渡したとき）
+ *   - タスクのプロンプトやコーパスの原文が編集された・削除された（sourceHashes を渡したとき）
  */
 export function loadSamples(path: string, opts: LoadSamplesOptions = {}): Sample[] {
   const byId = new Map<string, Sample>();
@@ -36,8 +39,8 @@ export function loadSamples(path: string, opts: LoadSamplesOptions = {}): Sample
     visiting.add(id);
     const s = byId.get(id);
     let result = true;
-    if (s?.sourceType === "corpus" && opts.corpusHashes) {
-      result = s.inputHash !== undefined && opts.corpusHashes.get(s.sourceId) === s.inputHash;
+    if (s && opts.sourceHashes) {
+      result = s.inputHash !== undefined && opts.sourceHashes.get(s.sourceId) === s.inputHash;
     }
     const reuse = s?.steps.find((st) => st.type === "generate" && st.reusedFrom);
     if (result && s && reuse?.reusedFrom && reuse.reusedHash) {
@@ -75,15 +78,30 @@ export function judgmentKey(j: Judgment): string {
     : `pairwise|${j.judgeModel}|${j.scheme}|${j.aSampleId}|${j.bSampleId}`;
 }
 
-export function loadJudgments(path: string, samples: Sample[]): Judgment[] {
+export interface LoadJudgmentsOptions {
+  /**
+   * source id → 現在の判定文脈（課題名・想定読者）のハッシュ。
+   * 渡すと、文脈が変わった判定を捨てる（判定プロンプトに埋め込まれているため）
+   */
+  contextHashes?: Map<string, string>;
+}
+
+export function loadJudgments(path: string, samples: Sample[], opts: LoadJudgmentsOptions = {}): Judgment[] {
   const hashes = sampleHashes(samples);
+  const sourceOf = new Map(samples.map((s) => [s.id, s.sourceId]));
   const byKey = new Map<string, Judgment>();
   for (const j of readJsonl<Judgment>(path)) byKey.set(judgmentKey(j), j);
+  const contextCurrent = (sampleId: string, contextHash: string | undefined): boolean => {
+    if (!opts.contextHashes) return true;
+    const sourceId = sourceOf.get(sampleId);
+    return sourceId !== undefined && contextHash !== undefined && opts.contextHashes.get(sourceId) === contextHash;
+  };
   return Array.from(byKey.values()).filter((j) =>
     j.kind === "rubric"
-      ? j.promptVersion === RUBRIC_PROMPT_VERSION && isCurrent(hashes, j.sampleId, j.textHash)
+      ? j.promptVersion === RUBRIC_PROMPT_VERSION && isCurrent(hashes, j.sampleId, j.textHash) && contextCurrent(j.sampleId, j.contextHash)
       : j.promptVersion === PAIRWISE_PROMPT_VERSION &&
         isCurrent(hashes, j.aSampleId, j.aTextHash) &&
-        isCurrent(hashes, j.bSampleId, j.bTextHash),
+        isCurrent(hashes, j.bSampleId, j.bTextHash) &&
+        contextCurrent(j.aSampleId, j.contextHash),
   );
 }

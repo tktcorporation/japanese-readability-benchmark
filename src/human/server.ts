@@ -45,7 +45,7 @@ async function readBody(req: IncomingMessage): Promise<string> {
 /**
  * 人手評価用の小さな HTTP サーバー。
  * - GET  /api/pairs?rater=ID   まだその評価者が答えていないペアを返す（本文は含む）
- * - POST /api/vote             投票を votes.jsonl に追記（同じ評価者の同じペアへの再投票は 409）
+ * - POST /api/vote             投票を votes.jsonl に追記（同じ評価者の同じペアへの再投票は 409、--per-rater の上限超過は 403）
  * - GET  /api/stats            投票数の概要
  * - それ以外                    web/ 配下の静的ファイル
  */
@@ -83,8 +83,14 @@ export function createHumanEvalServer(opts: ServeOptions) {
           return;
         }
         const { pairId, raterId } = parsed.data;
-        if (readJsonl<HumanVote>(opts.votesFile).some((v) => v.raterId === raterId && v.pairId === pairId)) {
+        const mine = readJsonl<HumanVote>(opts.votesFile).filter((v) => v.raterId === raterId && byId.has(v.pairId));
+        if (mine.some((v) => v.pairId === pairId)) {
           json(res, 409, { error: "already voted" });
+          return;
+        }
+        // 上限は受け付け側でも数える（複数タブや直接の API 呼び出しで GET の割り当てを超えないように）
+        if (opts.perRater && mine.length >= opts.perRater) {
+          json(res, 403, { error: "per-rater limit reached" });
           return;
         }
         const vote: HumanVote = { ...parsed.data, createdAt: new Date().toISOString() };

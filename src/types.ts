@@ -156,7 +156,10 @@ export interface Sample {
   text: string;
   /** コーパス/生成直後の文章（介入前）。差分表示用 */
   inputText?: string;
-  /** コーパス起点のとき、使った原文のハッシュ。コーパスを編集したら不一致になり、サンプルは陳腐化する */
+  /**
+   * 入力のハッシュ。タスク起点ならプロンプト、コーパス起点なら原文。
+   * 定義を編集したら不一致になり、サンプルは陳腐化して次の run で作り直される
+   */
   inputHash?: string;
   steps: StepTrace[];
   createdAt: string;
@@ -202,6 +205,8 @@ export interface RubricJudgment {
   sampleId: string;
   /** 判定時点の本文ハッシュ */
   textHash?: string;
+  /** 判定プロンプトに埋め込んだ課題名・想定読者のハッシュ。定義を直したら不一致になり、判定は陳腐化する */
+  contextHash?: string;
   judgeModel: string;
   promptVersion: string;
   scores: RubricScores;
@@ -223,6 +228,8 @@ export interface PairwiseJudgment {
   /** 判定時点の本文ハッシュ */
   aTextHash?: string;
   bTextHash?: string;
+  /** 判定プロンプトに埋め込んだ課題名・想定読者のハッシュ */
+  contextHash?: string;
   judgeModel: string;
   promptVersion: string;
   /** A を先に見せたときの判定 */

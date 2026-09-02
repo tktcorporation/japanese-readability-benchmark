@@ -24,6 +24,13 @@ export interface JudgeOptions {
   cacheDir?: string;
 }
 
+export const DEFAULT_AUDIENCE = "一般的な読者";
+
+/** 判定プロンプトに埋め込む文脈（課題名・想定読者）のハッシュ。定義を直したら判定を作り直すために記録する */
+export function contextHashOf(source: SourceInfo): string {
+  return sha256("context", source.title, source.audience ?? DEFAULT_AUDIENCE);
+}
+
 /** 同じキーの判定が同時に走ったとき、2 回目以降は 1 回目の Promise を共有する（ディスクキャッシュに書かれる前の重複呼び出しを防ぐ） */
 const inflight = new Map<string, Promise<unknown>>();
 
@@ -44,7 +51,7 @@ function cached<T>(cacheDir: string | undefined, key: string, compute: () => Pro
 
 export async function judgeRubric(sample: Sample, source: SourceInfo, opts: JudgeOptions): Promise<RubricJudgment> {
   const judgeModel = opts.provider.model.id;
-  const audience = source.audience ?? "一般的な読者";
+  const audience = source.audience ?? DEFAULT_AUDIENCE;
   const key = sha256("rubric", judgeModel, RUBRIC_PROMPT_VERSION, source.title, audience, sample.text);
   const value = await cached(opts.cacheDir, key, async () => {
     const { value } = await opts.provider.generateJson(
@@ -59,6 +66,7 @@ export async function judgeRubric(sample: Sample, source: SourceInfo, opts: Judg
     kind: "rubric",
     sampleId: sample.id,
     textHash: sha256(sample.text),
+    contextHash: contextHashOf(source),
     judgeModel,
     promptVersion: RUBRIC_PROMPT_VERSION,
     scores,
@@ -85,7 +93,7 @@ export async function judgePairwise(
   opts: JudgeOptions,
 ): Promise<PairwiseJudgment> {
   const judgeModel = opts.provider.model.id;
-  const audience = source.audience ?? "一般的な読者";
+  const audience = source.audience ?? DEFAULT_AUDIENCE;
   const ask = async (first: string, second: string) => {
     const key = sha256("pairwise", judgeModel, PAIRWISE_PROMPT_VERSION, source.title, audience, first, second);
     return cached(opts.cacheDir, key, async () => {
@@ -108,6 +116,7 @@ export async function judgePairwise(
     bSampleId: b.id,
     aTextHash: sha256(a.text),
     bTextHash: sha256(b.text),
+    contextHash: contextHashOf(source),
     judgeModel,
     promptVersion: PAIRWISE_PROMPT_VERSION,
     verdictAB,
