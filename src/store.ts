@@ -8,21 +8,26 @@ import { readJsonl, sha256 } from "./util/fs.ts";
  * すべて追記型なので、同じキーの記録が複数あれば後勝ちにする。
  * 採点・判定はサンプル本文のハッシュを持っており、次の記録は「陳腐化」として捨てる
  * （score / judge が再計算の対象にし、report には載らない）:
- *   - 対応するサンプルがない
+ *   - 対応するサンプルがない、または失敗している
  *   - 本文ハッシュが現在のサンプルと一致しない（`run --force` で再生成された）
  *   - 本文ハッシュを持っていない（鮮度を確かめられない）
  *   - 判定プロンプトの版が現在と異なる
  */
 
+export interface LoadSamplesOptions {
+  /** コーパス id → 現在の原文ハッシュ。渡すと、原文が変わった（または消えた）コーパス起点のサンプルを捨てる */
+  corpusHashes?: Map<string, string>;
+}
+
 /**
- * 同じ id は後勝ち。他の介入の出力を再利用したサンプルは、再利用元が作り直されて本文が変わっていたら
- * 陳腐化として捨てる（run で選択されれば作り直され、report には載らない）。
+ * 同じ id は後勝ち。次のサンプルは陳腐化として捨てる（run で選択されれば作り直され、report には載らない）:
+ *   - 他の介入の出力を再利用したが、再利用元が失敗して存在しない、または本文が変わっている（連鎖は再帰的に辿る）
+ *   - コーパス起点で、原文が編集された・削除された（corpusHashes を渡したとき）
  */
-export function loadSamples(path: string): Sample[] {
+export function loadSamples(path: string, opts: LoadSamplesOptions = {}): Sample[] {
   const byId = new Map<string, Sample>();
   for (const s of readJsonl<Sample>(path)) byId.set(s.id, s);
   const hashes = sampleHashes(Array.from(byId.values()));
-  // 再利用元が新鮮で、かつ記録したハッシュと一致するときだけ新鮮。連鎖（C→B→A）は再帰的に辿る
   const fresh = new Map<string, boolean>();
   const isFresh = (id: string, visiting = new Set<string>()): boolean => {
     const cached = fresh.get(id);
@@ -31,10 +36,14 @@ export function loadSamples(path: string): Sample[] {
     visiting.add(id);
     const s = byId.get(id);
     let result = true;
+    if (s?.sourceType === "corpus" && opts.corpusHashes) {
+      result = s.inputHash !== undefined && opts.corpusHashes.get(s.sourceId) === s.inputHash;
+    }
     const reuse = s?.steps.find((st) => st.type === "generate" && st.reusedFrom);
-    if (s && reuse?.reusedFrom && reuse.reusedHash) {
+    if (result && s && reuse?.reusedFrom && reuse.reusedHash) {
+      // 再利用元が成功して存在し、記録したハッシュと一致し、かつ再利用元自身も新鮮なときだけ新鮮
       const current = hashes.get(reuse.reusedFrom);
-      result = current === undefined || (current === reuse.reusedHash && isFresh(reuse.reusedFrom, visiting));
+      result = current !== undefined && current === reuse.reusedHash && isFresh(reuse.reusedFrom, visiting);
     }
     visiting.delete(id);
     fresh.set(id, result);

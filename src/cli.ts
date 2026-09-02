@@ -16,7 +16,7 @@ import { loadJudgments, loadSamples as loadSamplesFile, loadScores } from "./sto
 import type { HumanPair, HumanVote, ModelDef, PairScheme, PairwiseJudgment, RubricJudgment, Sample } from "./types.ts";
 import { mapLimit } from "./util/async.ts";
 import { loadDotenv } from "./util/env.ts";
-import { appendJsonl, ensureDir, readJson, readJsonl, repoPath, writeJson, writeText } from "./util/fs.ts";
+import { appendJsonl, ensureDir, readJson, readJsonl, repoPath, sha256, writeJson, writeText } from "./util/fs.ts";
 
 // .env があれば読む（すでに設定済みの環境変数は上書きしない）
 loadDotenv(repoPath(".env"));
@@ -55,8 +55,16 @@ function files(runId: string) {
   };
 }
 
+/** サンプルを読む。コーパスが編集・削除されていれば、そのコーパス起点のサンプルは陳腐化として除外される */
 function loadSamples(runId: string): Sample[] {
-  return loadSamplesFile(files(runId).samples);
+  const corpusHashes = new Map(loadCorpus().map((c) => [c.id, sha256(c.text)]));
+  return loadSamplesFile(files(runId).samples, { corpusHashes });
+}
+
+function parsePositiveInt(name: string, value: string): number {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n <= 0) throw new Error(`${name} は 1 以上の整数で指定してください: "${value}"`);
+  return n;
 }
 
 /** 採点・判定を読む。再生成で本文が変わったサンプルの記録は除外される */
@@ -110,7 +118,8 @@ program
     const models = pick(allModels, parseList(o.models), "モデル");
     const allInterventions = loadInterventions();
     const interventions = pick(allInterventions, parseList(o.interventions), "介入");
-    const perCell = Number(o.samples);
+    const perCell = parsePositiveInt("--samples", o.samples);
+    const concurrency = parsePositiveInt("--concurrency", o.concurrency);
     const f = files(o.run);
     ensureDir(f.dir);
     // 既存サンプル。reuse ステップの参照先にもなる（--force のときも参照先として残し、再生成されたら置き換わる）
@@ -143,11 +152,15 @@ program
         for (const model of modelChoices) {
           for (let index = 0; index < perCell; index += 1) {
             addJob({ source, model, intervention, index });
-            // --force で作り直す出力を再利用している介入は、選択されていなくても一緒に作り直す
-            if (o.force && source.type === "task") {
+            // --force で作り直す出力を再利用している介入は、選択されていなくても一緒に作り直す。
+            // コーパス起点では baseline（原文）のモデルは "none" だが、依存側（rewrite-pass など）は各モデルを持つ
+            if (o.force) {
+              const candidates: (ModelDef | undefined)[] = source.type === "corpus" ? [undefined, ...models] : [model];
               for (const dependent of dependentsOf(intervention.id, allInterventions)) {
-                if (store.has(sampleId(source.id, model?.id ?? "none", dependent.id, index))) {
-                  addJob({ source, model, intervention: dependent, index });
+                for (const m of candidates) {
+                  if (store.has(sampleId(source.id, m?.id ?? "none", dependent.id, index))) {
+                    addJob({ source, model: m, intervention: dependent, index });
+                  }
                 }
               }
             }
@@ -163,7 +176,7 @@ program
     for (const level of reuseLevels(involved)) {
       const ids = new Set(level.map((i) => i.id));
       const phase = jobs.filter((j) => ids.has(j.intervention.id));
-      await mapLimit(phase, Number(o.concurrency), async (job) => {
+      await mapLimit(phase, concurrency, async (job) => {
         const sample = await runCell(job.source, job.model, job.intervention, job.index, { runId: o.run, allModels, lookup });
         appendJsonl(f.samples, sample);
         // 失敗したら古い成功サンプルも参照先から外す（依存側が古い本文で成功扱いにならないように）

@@ -131,6 +131,7 @@ describe("runCell (mock)", () => {
     expect(base.text).toBe(doc.text);
     expect(base.modelId).toBe("none");
     expect(base.steps[0]).toMatchObject({ type: "generate", skipped: true });
+    expect(base.inputHash).toHaveLength(64);
 
     const rewritten = await run(corpus, mockVerbose, "rewrite-pass");
     expect(rewritten.error).toBeUndefined();

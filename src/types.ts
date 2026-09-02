@@ -156,6 +156,8 @@ export interface Sample {
   text: string;
   /** コーパス/生成直後の文章（介入前）。差分表示用 */
   inputText?: string;
+  /** コーパス起点のとき、使った原文のハッシュ。コーパスを編集したら不一致になり、サンプルは陳腐化する */
+  inputHash?: string;
   steps: StepTrace[];
   createdAt: string;
   error?: string;

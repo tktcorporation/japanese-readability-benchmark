@@ -71,6 +71,23 @@ describe("store", () => {
     expect(loadSamples(file).map((s) => s.id)).toEqual(["base", "b", "dep", "fresh"]);
     appendJsonl(file, sample("base", "作り直した本文。")); // run --force
     expect(loadSamples(file).map((s) => s.id)).toEqual(["base", "b", "fresh"]);
+    // 再利用元が失敗したら、依存サンプル（fresh）は捨てる。失敗の記録そのものは残る（エラーとして数える）
+    appendJsonl(file, { ...sample("b", "そのまま。"), error: "API error" });
+    expect(loadSamples(file).map((s) => s.id)).toEqual(["base", "b"]);
+    expect(loadSamples(file).find((s) => s.id === "b")?.error).toBe("API error");
+  });
+
+  it("コーパス起点のサンプルは原文が編集・削除されたら捨てる", () => {
+    const file = join(dir, "corpus.jsonl");
+    const doc = "原文。";
+    const orig = { ...sample("c__none__baseline__0", doc), sourceType: "corpus" as const, sourceId: "c", inputHash: sha256(doc) };
+    const rw = { ...sample("c__m__rewrite-pass__0", "書き直し。"), sourceType: "corpus" as const, sourceId: "c", inputHash: sha256(doc) };
+    const legacy = { ...sample("c__none__textlint-fix__0", "修正。"), sourceType: "corpus" as const, sourceId: "c" }; // inputHash なし
+    for (const s of [orig, rw, legacy]) appendJsonl(file, s);
+    expect(loadSamples(file).map((s) => s.id)).toHaveLength(3); // corpusHashes を渡さなければ検査しない
+    expect(loadSamples(file, { corpusHashes: new Map([["c", sha256(doc)]]) }).map((s) => s.id)).toEqual([orig.id, rw.id]);
+    expect(loadSamples(file, { corpusHashes: new Map([["c", sha256("編集した原文。")]]) })).toEqual([]);
+    expect(loadSamples(file, { corpusHashes: new Map() })).toEqual([]);
   });
 
   it("失敗した再実行は、同じ本文でも採点・判定の鮮度の根拠にならない", () => {

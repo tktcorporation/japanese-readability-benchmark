@@ -128,6 +128,7 @@ export async function runCell(
     text: "",
     steps: [],
     createdAt: new Date().toISOString(),
+    ...(source.type === "corpus" ? { inputHash: sha256(source.text) } : {}),
   };
   const audience = source.audience ?? "一般的な読者";
   let text: string | undefined = source.type === "corpus" ? source.text : undefined;
