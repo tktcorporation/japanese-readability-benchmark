@@ -1,5 +1,6 @@
 import { HEADLINE_METRICS, METRIC_DIRECTION } from "../metrics/index.ts";
-import type { HumanVote, Judgment, PairScheme, PairVerdict, PairwiseJudgment, RubricJudgment, Sample, ScoreRecord } from "../types.ts";
+import { DEFAULT_AUDIENCE, type SourceInfo } from "../judge/index.ts";
+import type { HumanPair, HumanVote, Judgment, PairScheme, PairVerdict, PairwiseJudgment, RubricJudgment, Sample, ScoreRecord } from "../types.ts";
 import { mean, round, stddev } from "../util/async.ts";
 
 export interface MetricStat {
@@ -79,10 +80,12 @@ export interface AggregateInput {
   judgments: Judgment[];
   humanVotes?: HumanVote[];
   /** pairId -> {a,b} の対応（人手評価用）。aText/bText は表示した本文で、現在のサンプルと一致するものだけ集計する */
-  humanPairs?: { id: string; scheme: PairScheme; aSampleId: string; bSampleId: string; aText: string; bText: string }[];
+  humanPairs?: Pick<HumanPair, "id" | "sourceId" | "scheme" | "aSampleId" | "bSampleId" | "aText" | "bText" | "taskTitle" | "audience">[];
   baselineId?: string;
   /** 集計に使う判定モデル。省略時は run 内で最初に見つかったもの */
   judgeModel?: string;
+  /** 現在の課題・コーパス定義（id → 課題名・想定読者）。渡すと、文脈が変わったペアの投票を捨てる */
+  sources?: Map<string, SourceInfo>;
 }
 
 const JUDGE_METRIC_KEYS: Record<keyof RubricJudgment["scores"], string> = {
@@ -197,10 +200,16 @@ export function aggregate(input: AggregateInput): Report {
   const humanModelWin = new Map<string, WinRate>();
   let agreement: Report["humanJudgeAgreement"];
   // 表示した本文が現在のサンプルと一致するペアだけを有効とする（再生成後の古いペア・投票は捨てる）
+  // sources を渡したときは、評価者に見せた課題名・想定読者が現在の定義と一致することも求める
+  // （本文が同じまま課題名だけ直した場合も、古い文脈で集めた投票は使わない）
   const validPairs = (input.humanPairs ?? []).filter((p) => {
     const a = sampleById.get(p.aSampleId);
     const b = sampleById.get(p.bSampleId);
     if (a === undefined || b === undefined || a.text !== p.aText || b.text !== p.bText) return false;
+    if (input.sources) {
+      const src = input.sources.get(p.sourceId);
+      if (!src || p.taskTitle !== src.title || (p.audience ?? DEFAULT_AUDIENCE) !== (src.audience ?? DEFAULT_AUDIENCE)) return false;
+    }
     // 介入比較のペアは B が、モデル比較のペアは A・B の両方が、選択中の baseline であること
     return p.scheme === "interventions"
       ? b.interventionId === baselineId

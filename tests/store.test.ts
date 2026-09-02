@@ -163,6 +163,21 @@ describe("store", () => {
     expect(loadSamples(file).map((s) => s.id)).toEqual(["a"]);
   });
 
+  it("再利用したステップが複数あれば、どの参照元が変わっても捨てる", () => {
+    const file = join(dir, "multi-reuse.jsonl");
+    const a = sample("a", "A の本文。");
+    const b = sample("b", "B の本文。");
+    const step = (from: string, text: string) => ({ type: "generate" as const, ms: 0, reusedFrom: from, reusedHash: sha256(text) });
+    const c = { ...sample("c", "C の本文。"), steps: [step("a", a.text), step("b", b.text)] };
+    for (const s of [a, b, c]) appendJsonl(file, s);
+    expect(loadSamples(file).map((s) => s.id)).toEqual(["a", "b", "c"]);
+    appendJsonl(file, sample("b", "B を作り直した。")); // 2 つ目の参照元だけが変わった
+    expect(loadSamples(file).map((s) => s.id)).toEqual(["a", "b"]);
+    // 参照元のハッシュを記録していない古い依存サンプルも新鮮とは見なさない
+    appendJsonl(file, { ...c, steps: [step("a", a.text), { type: "generate" as const, ms: 0, reusedFrom: "b" }] });
+    expect(loadSamples(file).map((s) => s.id)).toEqual(["a", "b"]);
+  });
+
   it("採点は後勝ちで重複を除き、本文が変わった記録・ハッシュのない記録・孤立した記録を捨てる", () => {
     const scores = loadScores(scoresFile, loadSamples(samplesFile));
     expect(scores.map((s) => [s.sampleId, s.metrics.v])).toEqual([["b", 3]]);

@@ -2,7 +2,7 @@ import { existsSync, readdirSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
-import type { CorpusDoc, InterventionDef, ModelDef, TaskDef } from "./types.ts";
+import type { CorpusDoc, InterventionDef, ModelDef, StepDef, TaskDef } from "./types.ts";
 import { readText, repoPath } from "./util/fs.ts";
 
 /**
@@ -157,13 +157,29 @@ export function loadModels(file = repoPath("config", "models.yaml")): ModelsConf
 }
 
 export function loadInterventions(dir = repoPath("interventions")): InterventionDef[] {
-  return assertUniqueIds(
+  const defs = assertUniqueIds(
     listFiles(dir, ".yaml").map((file) => {
       const def = interventionSchema.parse(parseYaml(readText(file)));
       return { ...def, dir: dirname(file) };
     }),
     "介入",
   );
+  return assertReuseTargets(defs);
+}
+
+/** generate ステップの reuse 先が実在する別の介入を指していることを確かめる（綴り間違いは実行前に止める） */
+export function assertReuseTargets<T extends { id: string; steps: StepDef[] }>(defs: T[]): T[] {
+  const ids = new Set(defs.map((d) => d.id));
+  for (const def of defs) {
+    for (const step of def.steps) {
+      if (step.type !== "generate" || !step.reuse) continue;
+      if (step.reuse === def.id) throw new Error(`介入 "${def.id}" が自分自身を reuse しています`);
+      if (!ids.has(step.reuse)) {
+        throw new Error(`介入 "${def.id}" の reuse 先 "${step.reuse}" が見つかりません（候補: ${Array.from(ids).sort().join(", ")}）`);
+      }
+    }
+  }
+  return defs;
 }
 
 /** タスクとコーパスをまとめて読む。サンプル id は source id だけで区別するので、両方にまたがって重複を禁じる */

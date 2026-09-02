@@ -1,15 +1,37 @@
 import { describe, expect, it } from "vitest";
 import { splitSentences, stripMarkdown } from "../src/metrics/sentences.ts";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { METRICS_VERSION, scoreSample, scoringHashOf } from "../src/metrics/index.ts";
 import { surfaceMetrics } from "../src/metrics/surface.ts";
-import { fixText, lintText } from "../src/metrics/textlint.ts";
+import { fixText, lintText, textlintPackagesOf, textlintToolchain } from "../src/metrics/textlint.ts";
 import { loadFixture } from "../src/providers/mock.ts";
 
 const PLAIN = loadFixture("plain").get("oauth-explain")!;
 const VERBOSE = loadFixture("verbose").get("oauth-explain")!;
+
+describe("textlint の来歴", () => {
+  it("設定から出力に影響するパッケージを求め、インストール済みの版を付ける", () => {
+    const cfg = JSON.stringify({
+      rules: { "preset-ja-technical-writing": { "sentence-length": { max: 100 } }, "preset-japanese": false, "no-todo": true, "@scope/rule-x": true, "textlint-rule-y": true },
+      filters: { comments: true },
+    });
+    expect(textlintPackagesOf(cfg)).toEqual([
+      "@scope/textlint-rule-rule-x",
+      "textlint",
+      "textlint-filter-rule-comments",
+      "textlint-rule-no-todo",
+      "textlint-rule-preset-ja-technical-writing",
+      "textlint-rule-y",
+    ]);
+    expect(textlintPackagesOf("{broken")).toEqual(["textlint"]);
+    const toolchain = textlintToolchain(readFileSync(join(process.cwd(), ".textlintrc.json"), "utf8"));
+    expect(toolchain.find((t) => t.startsWith("textlint@"))).toMatch(/^textlint@\d+\./);
+    expect(toolchain.find((t) => t.startsWith("textlint-rule-preset-ja-technical-writing@"))).toMatch(/@\d+\./);
+    expect(toolchain.find((t) => t.startsWith("textlint-rule-no-todo@"))).toBeUndefined();
+  });
+});
 
 describe("splitSentences", () => {
   it("句点・感嘆符・疑問符で区切る", () => {

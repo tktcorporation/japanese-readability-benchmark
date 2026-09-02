@@ -240,6 +240,16 @@ describe("人手評価", () => {
     const audienced = buildHumanPairs(samples, { schemes: ["interventions"], baselineId: "baseline", sources: new Map([["t1", { id: "t1", title: "課題", audience: "新人" }]]) });
     expect(audienced.find((x) => x.aSampleId === "m1-fix")?.id).not.toBe(p.id);
   });
+  it("課題名・想定読者が変わったペアの投票は、本文が同じでも sources を渡せば集計しない", () => {
+    const pairs = buildHumanPairs(samples, { schemes: ["interventions"], baselineId: "baseline", sources });
+    const p = pairs.find((x) => x.aSampleId === "m1-fix")!;
+    const votes: HumanVote[] = [{ pairId: p.id, choice: "A", leftWasA: true, raterId: "r1", createdAt: "" }];
+    const base = { runId: "r", samples, scores, judgments, humanVotes: votes, humanPairs: pairs };
+    expect(aggregate({ ...base, sources }).counts.humanVotes).toBe(1);
+    expect(aggregate({ ...base, sources: new Map([["t1", { id: "t1", title: "課題（改）" }]]) }).counts.humanVotes).toBe(0);
+    expect(aggregate({ ...base, sources: new Map([["t1", { id: "t1", title: "課題", audience: "新人" }]]) }).counts.humanVotes).toBe(0);
+    expect(aggregate({ ...base, sources: new Map() }).counts.humanVotes).toBe(0); // 定義が消えた
+  });
   it("majority は同数なら tie", () => {
     expect(majority(["A", "A", "B"])).toBe("A");
     expect(majority(["A", "B"])).toBe("tie");

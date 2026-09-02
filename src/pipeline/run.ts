@@ -1,3 +1,4 @@
+import { textlintToolchain } from "../metrics/textlint.ts";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { fixText } from "../metrics/textlint.ts";
@@ -57,7 +58,9 @@ export function provenanceHash(source: Source, model: ModelDef | undefined, inte
       case "textlint-fix": {
         // config 省略時はリポジトリ直下の .textlintrc.json を使うので、その内容も来歴に含める
         const configPath = step.config ? resolve(intervention.dir, step.config) : repoPath(".textlintrc.json");
-        return { ...step, configContent: readText(configPath) };
+        const configContent = readText(configPath);
+        // 設定が同じでも textlint 本体やルールの版が変われば出力が変わりうるので、インストール済みの版も含める
+        return { ...step, configContent, toolchain: textlintToolchain(configContent) };
       }
       default:
         return step;

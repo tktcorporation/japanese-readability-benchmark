@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import type { Sample, ScoreRecord } from "../types.ts";
-import { readText, repoPath, sha256 } from "../util/fs.ts";
+import { installedVersion, readText, repoPath, sha256 } from "../util/fs.ts";
 import { surfaceMetrics } from "./surface.ts";
 import { lintText } from "./textlint.ts";
 
@@ -13,15 +13,6 @@ export const METRICS_VERSION = "metrics-v1";
 /** 採点に影響する依存パッケージ。インストール済みの版を採点設定ハッシュに含める */
 const SCORING_PACKAGES = ["textlint", "textlint-rule-preset-ja-technical-writing", "kuromojin"];
 
-function installedVersion(pkg: string): string {
-  const file = repoPath("node_modules", pkg, "package.json");
-  if (!existsSync(file)) return "missing";
-  try {
-    return String((JSON.parse(readText(file)) as { version?: string }).version ?? "unknown");
-  } catch {
-    return "unknown";
-  }
-}
 
 /**
  * 採点設定のハッシュ。指標の実装版・textlint 設定の内容・依存パッケージの版のどれかが変わると変わる。

@@ -346,7 +346,7 @@ program
     const { scores, judgments } = loadDerived(o.run, samples);
     const humanVotes = readJsonl<HumanVote>(f.votes);
     const humanPairs = existsSync(f.pairs) ? readJson<HumanPair[]>(f.pairs) : undefined;
-    const report = aggregate({ runId: o.run, samples, scores, judgments, humanVotes, humanPairs, baselineId: o.baseline, judgeModel: o.judge });
+    const report = aggregate({ runId: o.run, samples, scores, judgments, humanVotes, humanPairs, baselineId: o.baseline, judgeModel: o.judge, sources: sourceInfos() });
     if (report.judgeModels.length > 1 && !o.judge) {
       log(`注意: 判定モデルが複数あります（${report.judgeModels.join(", ")}）。${report.judgeModel} で集計しました。--judge で切り替えられます`);
     }

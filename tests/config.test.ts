@@ -32,7 +32,14 @@ describe("設定の検証", () => {
   it("介入定義に知らないキー（綴り間違い）があれば読み込み時にエラー", () => {
     expect(() => loadInterventions(dirWith("typo-step", { "x.yaml": "id: x\nname: t\nsteps:\n  - type: generate\n    resue: baseline\n" }))).toThrow();
     expect(() => loadInterventions(dirWith("typo-top", { "x.yaml": "id: x\nname: t\nextra: 1\nsteps:\n  - type: generate\n" }))).toThrow();
-    expect(loadInterventions(dirWith("ok", { "x.yaml": "id: x\nname: t\nsteps:\n  - type: generate\n    reuse: baseline\n" }))).toHaveLength(1);
+    const base = "id: baseline\nname: b\nsteps:\n  - type: generate\n";
+    expect(loadInterventions(dirWith("ok", { "baseline.yaml": base, "x.yaml": "id: x\nname: t\nsteps:\n  - type: generate\n    reuse: baseline\n" }))).toHaveLength(2);
+  });
+  it("reuse 先の介入が存在しない（綴り間違い）・自分自身なら読み込み時にエラー", () => {
+    const base = "id: baseline\nname: b\nsteps:\n  - type: generate\n";
+    expect(() => loadInterventions(dirWith("reuse-typo", { "baseline.yaml": base, "x.yaml": "id: x\nname: t\nsteps:\n  - type: generate\n    reuse: basline\n" }))).toThrow('reuse 先 "basline"');
+    expect(() => loadInterventions(dirWith("reuse-self", { "x.yaml": "id: x\nname: t\nsteps:\n  - type: generate\n    reuse: x\n" }))).toThrow("自分自身");
+    expect(loadInterventions().length).toBeGreaterThan(0); // 同梱の定義は整合している
   });
   it('モデル id に予約語 "none" は使えない', () => {
     const models = (id: string) => `models:\n  - id: ${id}\n    provider: mock\n    model: x\njudge:\n  model: ${id}\n`;

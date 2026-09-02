@@ -42,9 +42,15 @@ export function loadSamples(path: string, opts: LoadSamplesOptions = {}): Sample
     if (s && opts.provenanceHashes) {
       result = s.inputHash !== undefined && opts.provenanceHashes.get(`${s.sourceId}|${s.modelId}|${s.interventionId}`) === s.inputHash;
     }
-    const reuse = s?.steps.find((st) => st.type === "generate" && st.reusedFrom);
-    if (result && s && reuse?.reusedFrom && reuse.reusedHash) {
-      // 再利用元が成功して存在し、記録したハッシュと一致し、かつ再利用元自身も新鮮なときだけ新鮮
+    // 再利用したステップが複数あれば、そのすべての参照元が成功して存在し、記録したハッシュと一致し、
+    // かつ参照元自身も新鮮なときだけ新鮮とする
+    const reuses = s?.steps.filter((st) => st.type === "generate" && st.reusedFrom) ?? [];
+    for (const reuse of reuses) {
+      if (!result) break;
+      if (!reuse.reusedFrom || !reuse.reusedHash) {
+        result = false;
+        break;
+      }
       const current = hashes.get(reuse.reusedFrom);
       result = current !== undefined && current === reuse.reusedHash && isFresh(reuse.reusedFrom, visiting);
     }
