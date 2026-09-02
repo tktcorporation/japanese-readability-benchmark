@@ -8,7 +8,7 @@ import { createHumanEvalServer } from "./human/server.ts";
 import { buildPairs, judgePairwise, judgeRubric, type SourceInfo } from "./judge/index.ts";
 import { scoreSample } from "./metrics/index.ts";
 import { PAIRWISE_PROMPT_VERSION, RUBRIC_PROMPT_VERSION } from "./judge/prompts.ts";
-import { corpusSource, needsModelForCorpus, reuseLevels, runCell, sampleId, taskSource, type Source } from "./pipeline/run.ts";
+import { corpusSource, dependentsOf, needsModelForCorpus, reuseLevels, runCell, sampleId, taskSource, type Source } from "./pipeline/run.ts";
 import { createProvider } from "./providers/index.ts";
 import { aggregate } from "./report/aggregate.ts";
 import { renderMarkdown } from "./report/markdown.ts";
@@ -111,7 +111,8 @@ program
   .action(async (o: { run: string; tasks?: string; corpus?: string | boolean; models?: string; interventions?: string; samples: string; concurrency: string; force: boolean }) => {
     const { models: allModels } = loadModels();
     const models = pick(allModels, parseList(o.models), "モデル");
-    const interventions = pick(loadInterventions(), parseList(o.interventions), "介入");
+    const allInterventions = loadInterventions();
+    const interventions = pick(allInterventions, parseList(o.interventions), "介入");
     const perCell = Number(o.samples);
     const f = files(o.run);
     ensureDir(f.dir);
@@ -129,15 +130,30 @@ program
       sources = pick(loadTasks(), parseList(o.tasks), "タスク").map(taskSource);
     }
 
-    const jobs: { source: Source; model: ModelDef | undefined; intervention: (typeof interventions)[number]; index: number }[] = [];
+    type Job = { source: Source; model: ModelDef | undefined; intervention: (typeof interventions)[number]; index: number };
+    const jobs: Job[] = [];
+    const jobIds = new Set<string>();
+    const addJob = (job: Job) => {
+      const id = sampleId(job.source.id, job.model?.id ?? "none", job.intervention.id, job.index);
+      if (existing.has(id) || jobIds.has(id)) return;
+      jobIds.add(id);
+      jobs.push(job);
+    };
     for (const source of sources) {
       for (const intervention of interventions) {
         const modelChoices: (ModelDef | undefined)[] =
           source.type === "corpus" && !needsModelForCorpus(intervention) ? [undefined] : models;
         for (const model of modelChoices) {
           for (let index = 0; index < perCell; index += 1) {
-            const id = sampleId(source.id, model?.id ?? "none", intervention.id, index);
-            if (!existing.has(id)) jobs.push({ source, model, intervention, index });
+            addJob({ source, model, intervention, index });
+            // --force で作り直す出力を再利用している介入は、選択されていなくても一緒に作り直す
+            if (o.force && source.type === "task") {
+              for (const dependent of dependentsOf(intervention.id, allInterventions)) {
+                if (store.has(sampleId(source.id, model?.id ?? "none", dependent.id, index))) {
+                  addJob({ source, model, intervention: dependent, index });
+                }
+              }
+            }
           }
         }
       }
@@ -146,7 +162,8 @@ program
     let done = 0;
     let errors = 0;
     // 他の介入の出力を再利用する介入は、参照先の段階がすべて終わってから実行する
-    for (const level of reuseLevels(interventions)) {
+    const involved = Array.from(new Set(jobs.map((j) => j.intervention)));
+    for (const level of reuseLevels(involved)) {
       const ids = new Set(level.map((i) => i.id));
       const phase = jobs.filter((j) => ids.has(j.intervention.id));
       await mapLimit(phase, Number(o.concurrency), async (job) => {

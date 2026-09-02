@@ -38,8 +38,12 @@ export class OpenAIProvider implements Provider {
     });
     const choice = completion.choices[0];
     if (!choice) throw new Error("choices が空です");
+    if (choice.message.refusal) throw new Error(`refusal: ${choice.message.refusal}`);
+    if (choice.finish_reason === "length") throw new Error("max_tokens に達して出力が途中で切れました");
+    if (choice.finish_reason === "content_filter") throw new Error("content_filter により出力が打ち切られました");
+    if (choice.message.content === null || choice.message.content === undefined) throw new Error("応答に本文がありません");
     return {
-      text: choice.message.content ?? "",
+      text: choice.message.content,
       servedBy: completion.model,
       usage: { inputTokens: completion.usage?.prompt_tokens, outputTokens: completion.usage?.completion_tokens },
       stopReason: choice.finish_reason ?? undefined,

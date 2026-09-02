@@ -134,8 +134,9 @@ export interface StepTrace {
   ms: number;
   modelId?: string;
   servedBy?: string;
-  /** generate(reuse): 再利用したサンプルの id */
+  /** generate(reuse): 再利用したサンプルの id と、そのときの本文ハッシュ（再利用元が作り直されたら不一致になる） */
   reusedFrom?: string;
+  reusedHash?: string;
   /** textlint-fix: 適用された修正数 / 残った違反数 */
   applied?: number;
   remaining?: number;

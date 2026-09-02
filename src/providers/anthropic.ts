@@ -52,6 +52,7 @@ export class AnthropicProvider implements Provider {
       const category = details && typeof details === "object" && "category" in details ? String(details.category) : "unknown";
       throw new Error(`refusal (${category})`);
     }
+    if (response.stop_reason === "max_tokens") throw new Error("max_tokens に達して出力が途中で切れました");
     const text = response.content
       .filter((b): b is Anthropic.TextBlock => b.type === "text")
       .map((b) => b.text)

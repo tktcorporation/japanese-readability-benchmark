@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 import { fixText } from "../metrics/textlint.ts";
 import { createProvider } from "../providers/index.ts";
 import type { CorpusDoc, InterventionDef, ModelDef, Sample, StepDef, StepTrace, TaskDef } from "../types.ts";
-import { readText, repoPath, slug } from "../util/fs.ts";
+import { readText, repoPath, sha256, slug } from "../util/fs.ts";
 
 /** 生成の起点。タスク（プロンプト）かコーパス（既存文章）のどちらか */
 export type Source =
@@ -30,6 +30,24 @@ export interface RunOptions {
 export function reusesIntervention(intervention: InterventionDef): string | undefined {
   for (const s of intervention.steps) if (s.type === "generate" && s.reuse) return s.reuse;
   return undefined;
+}
+
+/** id の出力を（推移的に）再利用している介入。作り直したときに一緒に作り直す対象 */
+export function dependentsOf(id: string, all: InterventionDef[]): InterventionDef[] {
+  const out: InterventionDef[] = [];
+  const seen = new Set<string>([id]);
+  const queue = [id];
+  while (queue.length) {
+    const current = queue.shift()!;
+    for (const i of all) {
+      if (reusesIntervention(i) === current && !seen.has(i.id)) {
+        seen.add(i.id);
+        out.push(i);
+        queue.push(i.id);
+      }
+    }
+  }
+  return out;
 }
 
 /**
@@ -161,7 +179,10 @@ async function executeStep(step: StepDef, ctx: StepContext): Promise<{ trace: St
         if (!prior || prior.error || !prior.text) {
           throw new Error(`再利用する介入 "${step.reuse}" のサンプルがありません。先に ${step.reuse} を同じ run で実行してください`);
         }
-        return { trace: { type: "generate", ms: 0, modelId: ctx.model.id, reusedFrom: prior.id }, text: prior.text };
+        return {
+          trace: { type: "generate", ms: 0, modelId: ctx.model.id, reusedFrom: prior.id, reusedHash: sha256(prior.text) },
+          text: prior.text,
+        };
       }
       const provider = createProvider(ctx.model);
       const system = step.system ? readText(resolve(ctx.intervention.dir, step.system)) : undefined;

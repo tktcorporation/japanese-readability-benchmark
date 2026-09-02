@@ -93,6 +93,18 @@ describe("aggregate", () => {
     const orphan = aggregate({ runId: "r", samples: [ss[0]!, sample("t9-x", "m1", "x", "t9")], scores: [sc[0]!, score("t9-x", ss[2]!, { textlintPer1k: 1 })], judgments: [] });
     expect(orphan.cells.find((c) => c.interventionId === "x")?.improvementPct).toBeUndefined();
   });
+  it("介入の勝率は B が選択中の baseline の判定だけを数える", () => {
+    const extra: Judgment[] = [
+      // 別の --baseline（textlint-fix を基準）で判定した結果。baseline 基準の勝率には混ぜない
+      { kind: "pairwise", scheme: "interventions", sourceId: "t1", aSampleId: "m1-base", bSampleId: "m1-fix", judgeModel: "j", promptVersion: "v", verdictAB: "A", verdictBA: "A", verdict: "A", rationale: "", createdAt: "" },
+    ];
+    const r = aggregate({ runId: "r", samples, scores, judgments: [...judgments, ...extra] });
+    expect(r.cells.find((c) => c.modelId === "m1" && c.interventionId === "baseline")?.judgeWinRate).toBeUndefined();
+    expect(r.cells.find((c) => c.modelId === "m1" && c.interventionId === "textlint-fix")?.judgeWinRate).toMatchObject({ wins: 1, n: 1 });
+    const flipped = aggregate({ runId: "r", samples, scores, judgments: [...judgments, ...extra], baselineId: "textlint-fix" });
+    expect(flipped.cells.find((c) => c.modelId === "m1" && c.interventionId === "baseline")?.judgeWinRate).toMatchObject({ wins: 1, n: 1 });
+    expect(flipped.cells.find((c) => c.modelId === "m1" && c.interventionId === "textlint-fix")?.judgeWinRate).toBeUndefined();
+  });
   it("判定モデルが複数あるときは 1 つに絞って集計する", () => {
     const other: Judgment[] = [
       { kind: "rubric", sampleId: "m1-base", judgeModel: "z", promptVersion: "v", createdAt: "", rationale: "", scores: { readability: 5, clarity: 5, naturalness: 5, concision: 5, structure: 5, overall: 5 } },

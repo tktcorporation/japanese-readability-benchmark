@@ -59,6 +59,20 @@ describe("store", () => {
     expect(samples.find((s) => s.id === "a")?.text).toBe("新しい本文。");
   });
 
+  it("再利用元が作り直されて本文が変わった依存サンプルは捨てる", () => {
+    const file = join(dir, "reuse.jsonl");
+    const base = sample("base", "古い本文。");
+    const dep = { ...sample("dep", "古い本文。修正済み。"), steps: [{ type: "generate" as const, ms: 0, reusedFrom: "base", reusedHash: sha256(base.text) }] };
+    const fresh = { ...sample("fresh", "そのまま。修正済み。"), steps: [{ type: "generate" as const, ms: 0, reusedFrom: "b", reusedHash: sha256("そのまま。") }] };
+    appendJsonl(file, base);
+    appendJsonl(file, sample("b", "そのまま。"));
+    appendJsonl(file, dep);
+    appendJsonl(file, fresh);
+    expect(loadSamples(file).map((s) => s.id)).toEqual(["base", "b", "dep", "fresh"]);
+    appendJsonl(file, sample("base", "作り直した本文。")); // run --force
+    expect(loadSamples(file).map((s) => s.id)).toEqual(["base", "b", "fresh"]);
+  });
+
   it("採点は後勝ちで重複を除き、本文が変わった記録・ハッシュのない記録・孤立した記録を捨てる", () => {
     const scores = loadScores(scoresFile, loadSamples(samplesFile));
     expect(scores.map((s) => [s.sampleId, s.metrics.v])).toEqual([["b", 3]]);

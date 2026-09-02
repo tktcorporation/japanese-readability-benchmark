@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { loadCorpus, loadInterventions, loadModels, loadTasks, parseCorpusDoc } from "../src/config.ts";
 import { surfaceMetrics } from "../src/metrics/surface.ts";
-import { corpusSource, needsModelForCorpus, renderTemplate, reuseLevels, reusesIntervention, runCell, sampleId, taskSource } from "../src/pipeline/run.ts";
+import { corpusSource, dependentsOf, needsModelForCorpus, renderTemplate, reuseLevels, reusesIntervention, runCell, sampleId, taskSource } from "../src/pipeline/run.ts";
 import type { InterventionDef, Sample } from "../src/types.ts";
 
 const { models } = loadModels();
@@ -63,6 +63,13 @@ describe("reuseLevels", () => {
     expect(() => reuseLevels([def("a", "b"), def("b", "a")])).toThrow("循環");
     expect(() => reuseLevels([def("a", "a")])).toThrow("循環");
   });
+  it("dependentsOf は推移的に依存する介入を返す", () => {
+    const all = [def("a"), def("b", "a"), def("c", "b"), def("d"), def("e", "d")];
+    expect(dependentsOf("a", all).map((i) => i.id)).toEqual(["b", "c"]);
+    expect(dependentsOf("d", all).map((i) => i.id)).toEqual(["e"]);
+    expect(dependentsOf("c", all)).toEqual([]);
+    expect(dependentsOf("baseline", interventions).map((i) => i.id).sort()).toEqual(["rewrite-pass", "textlint-fix"]);
+  });
   it("同梱の介入は baseline → 後処理 の 2 段階", () => {
     const levels = reuseLevels(interventions);
     expect(levels[0]!.map((i) => i.id)).toContain("baseline");
@@ -84,6 +91,7 @@ describe("runCell (mock)", () => {
     const s = await run(task, mockVerbose, "textlint-fix");
     expect(s.error).toBeUndefined();
     expect(s.steps[0]).toMatchObject({ type: "generate", reusedFrom: base.id });
+    expect(s.steps[0]!.reusedHash).toHaveLength(64);
     expect(reusesIntervention(byId("textlint-fix"))).toBe("baseline");
     expect(reusesIntervention(byId("baseline"))).toBeUndefined();
     expect(reusesIntervention(byId("style-prompt"))).toBeUndefined();
