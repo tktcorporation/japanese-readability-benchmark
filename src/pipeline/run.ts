@@ -174,6 +174,16 @@ export function needsModelForCorpus(intervention: InterventionDef, all: Interven
   });
 }
 
+/**
+ * モデルの応答が空（空白のみ）なら、その場で失敗にする。
+ * 空のまま次のステップ（rewrite など）に渡すと、テンプレートだけから無関係な文章が生成され、成功として保存されてしまう
+ */
+function nonEmpty(text: string, where: string): string {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) throw new Error(`${where} の応答が空です`);
+  return trimmed;
+}
+
 export function renderTemplate(template: string, vars: Record<string, string>): string {
   return template.replace(/\{\{\s*(\w+)\s*\}\}/g, (_, key: string) => vars[key] ?? "");
 }
@@ -279,7 +289,7 @@ async function executeStep(step: StepDef, ctx: StepContext): Promise<{ trace: St
       const res = await provider.generate({ system, prompt, purpose: "generate", sourceId: ctx.source.id });
       return {
         trace: { type: "generate", ms: 0, modelId: ctx.model.id, servedBy: res.servedBy, usage: res.usage },
-        text: res.text.trim(),
+        text: nonEmpty(res.text, `generate（${ctx.model.id}）`),
       };
     }
     case "textlint-fix": {
@@ -300,7 +310,7 @@ async function executeStep(step: StepDef, ctx: StepContext): Promise<{ trace: St
       for (let i = 0; i < (step.passes ?? 1); i += 1) {
         const prompt = renderTemplate(template, { text, audience: ctx.audience, title: ctx.source.title });
         const res = await provider.generate({ prompt, purpose: "rewrite", sourceId: ctx.source.id });
-        text = res.text.trim();
+        text = nonEmpty(res.text, `rewrite（${model.id}、${i + 1} 回目）`);
         usage = res.usage;
         servedBy = res.servedBy;
       }

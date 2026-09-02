@@ -144,6 +144,22 @@ describe("runCell (mock)", () => {
     expect(fix.applied).toBeGreaterThanOrEqual(0);
     expect(fix.remaining).toBeGreaterThanOrEqual(0);
   });
+  it("生成や書き直しの応答が空なら、次のステップに渡さずその場で失敗にする", async () => {
+    const empty = { ...mockVerbose, id: "mock-empty", mockStyle: "no-such-style-" + Date.now() };
+    // フィクスチャの無いスタイルは既定の文章を返すので、generate 自体は空にならない。rewrite で空を返すモデルを用意する
+    const { MockProvider } = await import("../src/providers/mock.ts");
+    const orig = MockProvider.prototype.generate;
+    MockProvider.prototype.generate = async function (req) {
+      if (req.purpose === "rewrite") return { text: "  \n ", servedBy: "mock:empty", latencyMs: 0 };
+      return orig.call(this, req);
+    };
+    try {
+      const s = await runCell(task, mockVerbose, byId("full-stack"), 0, { ...opts, allModels: [...models, empty] });
+      expect(s.error).toMatch(/rewrite.*応答が空/);
+    } finally {
+      MockProvider.prototype.generate = orig;
+    }
+  });
   it("コーパス起点では generate を飛ばし、原文から始める", async () => {
     const doc = loadCorpus()[0]!;
     const corpus = corpusSource(doc);

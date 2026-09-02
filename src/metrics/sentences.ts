@@ -5,7 +5,7 @@
 
 /**
  * コードブロックを落とす。
- * - フェンス（``` / ~~~、3 文字以上、行頭 0〜3 スペース）: 同じ文字で同じ長さ以上の閉じフェンスまで。閉じなければ末尾まで（CommonMark と同じ）
+ * - フェンス（``` / ~~~、3 文字以上。箇条書きの中で 4 スペース以上下がっていても、引用の中でも可）: 同じ文字で同じ長さ以上の閉じフェンスまで。閉じなければ末尾まで（CommonMark と同じ）
  * - インデントコード（空行の後に 4 スペース以上またはタブで始まる行）: インデントが続く間。ネストした箇条書きは除く
  * - 引用（> ）の中のフェンス・インデントコードも同様に扱う（引用記号を外してから判定する）
  */
@@ -19,7 +19,7 @@ export function removeCodeBlocks(text: string): string {
   for (let i = 0; i < lines.length; i += 1) {
     const line = unquote(lines[i]!);
     if (fence) {
-      const close = line.match(/^ {0,3}(`{3,}|~{3,})\s*$/);
+      const close = line.match(/^\s*(`{3,}|~{3,})\s*$/);
       if (close && close[1]![0] === fence.char && close[1]!.length >= fence.length) {
         fence = undefined;
         out.push("");
@@ -27,7 +27,7 @@ export function removeCodeBlocks(text: string): string {
       }
       continue;
     }
-    const open = line.match(/^ {0,3}(`{3,}|~{3,})/);
+    const open = line.match(/^\s*(`{3,}|~{3,})/);
     if (open) {
       fence = { char: open[1]![0]!, length: open[1]!.length };
       continue;

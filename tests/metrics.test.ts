@@ -83,6 +83,14 @@ describe("removeCodeBlocks", () => {
   });
 });
 
+describe("removeCodeBlocks（箇条書きの中のフェンス）", () => {
+  it("箇条書きの直後に 4 スペース以上下がったフェンスもコードとして落とす", () => {
+    const md = "- 説明です。\n    ```js\n    const x = 1;\n    ```\n- 次の項目です。\n\t~~~\n\tcode\n\t~~~\n本文です。";
+    expect(removeCodeBlocks(md)).not.toMatch(/const x|code/);
+    expect(splitSentences(md)).toEqual(["説明です。", "次の項目です。", "本文です。"]);
+  });
+});
+
 describe("stripMarkdown の表", () => {
   it("表の区切り行は落とし、セルの本文は残す", () => {
     const md = "| 項目 | 説明です。 |\n| --- | :---: |\n|:-|-:|\n| A | 本文です。 |";
