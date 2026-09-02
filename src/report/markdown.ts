@@ -82,8 +82,9 @@ function cellRows(cells: CellReport[], keys: string[], withModel: boolean): stri
       const v = fmtStat(k, c.metrics[k], c.samples - c.errors);
       const imp = c.improvementPct?.[k];
       if (imp === undefined) return v;
-      // 改善率は baseline と対にできたサンプルだけで計算している。一部しか対にできなければ件数を添える
-      const partial = c.matched !== undefined && c.matched < c.samples - c.errors ? `, 対 ${c.matched} 件` : "";
+      // 改善率は、その指標が両方にある baseline との対だけで計算している。一部しか対にできなければ件数を添える
+      const pairsUsed = c.matchedN?.[k] ?? c.matched;
+      const partial = pairsUsed !== undefined && pairsUsed < c.samples - c.errors ? `, 対 ${pairsUsed} 件` : "";
       return `${v} (${fmtPct(imp)}${partial})`;
     }),
     fmtWin(c.judgeWinRate),

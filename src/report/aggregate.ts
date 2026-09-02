@@ -32,6 +32,8 @@ export interface CellReport {
   improvementPct?: Record<string, number>;
   /** baseline と対にできたサンプル数 */
   matched?: number;
+  /** 指標ごとに、両方に値があって改善率の計算に使えた対の数（judge --limit 後などは matched より少ない） */
+  matchedN?: Record<string, number>;
   /** LLM の pairwise 判定: この介入 vs baseline */
   judgeWinRate?: WinRate;
   /** 人手投票: この介入 vs baseline */
@@ -367,7 +369,7 @@ function matchedComparison(
   baselineOf: (s: Sample) => Sample | undefined,
   rows: Map<string, Record<string, number>>,
   keys: string[],
-): Pick<CellReport, "delta" | "improvementPct" | "matched"> | undefined {
+): Pick<CellReport, "delta" | "improvementPct" | "matched" | "matchedN"> | undefined {
   const pairs: [Sample, Sample][] = [];
   for (const s of targets) {
     if (s.error) continue;
@@ -377,6 +379,7 @@ function matchedComparison(
   if (!pairs.length) return undefined;
   const delta: Record<string, number> = {};
   const pct: Record<string, number> = {};
+  const matchedN: Record<string, number> = {};
   for (const k of keys) {
     const next: number[] = [];
     const base: number[] = [];
@@ -391,8 +394,9 @@ function matchedComparison(
     if (!next.length) continue;
     delta[k] = round(mean(next) - mean(base), 4);
     pct[k] = improvementPct(mean(base), mean(next), k);
+    matchedN[k] = next.length;
   }
-  return { delta, improvementPct: pct, matched: pairs.length };
+  return { delta, improvementPct: pct, matched: pairs.length, matchedN };
 }
 
 export function majority(choices: PairVerdict[]): PairVerdict {

@@ -87,6 +87,25 @@ describe("mock judge", () => {
       expect(v).toBeLessThanOrEqual(5);
     }
   });
+  it("同じ入力の判定が同時に走っても判定モデルは 1 回しか呼ばれない", async () => {
+    let calls = 0;
+    const counting = {
+      model: judge.model,
+      generate: judge.generate.bind(judge),
+      generateJson: async <T,>(...args: Parameters<typeof judge.generateJson<T>>) => {
+        calls += 1;
+        await new Promise((r) => setTimeout(r, 5));
+        return judge.generateJson<T>(...args);
+      },
+    };
+    const twin = { ...plain, id: "p2" }; // 本文が同じ別サンプル
+    const j = await judgePairwise(plain, twin, { id: "same", title: "同一" }, "interventions", { provider: counting });
+    expect(j.verdict).toBe("tie");
+    expect(calls).toBe(1); // A先・B先のキーが同じなので 1 回に束ねられる
+    calls = 0;
+    await Promise.all([judgeRubric(plain, { id: "same", title: "同一" }, { provider: counting }), judgeRubric(twin, { id: "same", title: "同一" }, { provider: counting })]);
+    expect(calls).toBe(1);
+  });
   it("pairwise は順序を入れ替えても同じ勝者を返す", async () => {
     const j = await judgePairwise(plain, verbose, src, "models", { provider: judge });
     expect(j.verdict).toBe("A");

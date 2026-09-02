@@ -151,6 +151,14 @@ describe("aggregate", () => {
     expect(md).toContain("textlint-fix");
     expect(md).toContain("+50.0%");
   });
+  it("改善率の対の数は指標ごとに数える（LLM 採点が一部だけなら、その指標だけ件数を添える）", () => {
+    const fix = report.interventions.find((c) => c.interventionId === "textlint-fix")!;
+    expect(fix.matched).toBe(2);
+    expect(fix.matchedN?.textlintPer1k).toBe(2);
+    expect(fix.matchedN?.judgeOverall).toBe(1);
+    const md = renderMarkdown(report);
+    expect(md).toMatch(/\| textlint-fix \| 2 \| 4\.50 \(\+35\.7%\) .*4\.00 \[n=1\] \(\+100\.0%, 対 1 件\)/);
+  });
   it("一部のサンプルでしか計算されていない指標には件数を添える", () => {
     // baseline 行は 2 サンプルあるが、LLM 採点は m1-base の 1 件だけ
     const base = report.interventions.find((c) => c.interventionId === "baseline")!;

@@ -24,14 +24,22 @@ export interface JudgeOptions {
   cacheDir?: string;
 }
 
+/** 同じキーの判定が同時に走ったとき、2 回目以降は 1 回目の Promise を共有する（ディスクキャッシュに書かれる前の重複呼び出しを防ぐ） */
+const inflight = new Map<string, Promise<unknown>>();
+
 function cached<T>(cacheDir: string | undefined, key: string, compute: () => Promise<T>): Promise<T> {
-  if (!cacheDir) return compute();
-  const file = `${cacheDir}/${key}.json`;
-  if (existsSync(file)) return Promise.resolve(readJson<T>(file));
-  return compute().then((v) => {
-    writeJson(file, v);
-    return v;
-  });
+  const file = cacheDir ? `${cacheDir}/${key}.json` : undefined;
+  if (file && existsSync(file)) return Promise.resolve(readJson<T>(file));
+  const pending = inflight.get(key);
+  if (pending) return pending as Promise<T>;
+  const p = compute()
+    .then((v) => {
+      if (file) writeJson(file, v);
+      return v;
+    })
+    .finally(() => inflight.delete(key));
+  inflight.set(key, p);
+  return p;
 }
 
 export async function judgeRubric(sample: Sample, source: SourceInfo, opts: JudgeOptions): Promise<RubricJudgment> {
