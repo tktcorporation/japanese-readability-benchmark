@@ -182,10 +182,16 @@ export function pick<T extends { id: string }>(all: T[], ids: string[] | undefin
   });
 }
 
+/**
+ * カンマ区切りの id リストを読む。省略時は undefined（＝全部）。
+ * 明示的に渡されたのに中身が空（`','` や空白だけ）なら、「全部」と解釈せずエラーにする
+ */
 export function parseList(value: string | undefined): string[] | undefined {
-  if (!value) return undefined;
-  return value
+  if (value === undefined) return undefined;
+  const list = value
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
+  if (list.length === 0) throw new Error(`id のリストが空です: "${value}"（全部を対象にするならオプション自体を省略してください）`);
+  return list;
 }

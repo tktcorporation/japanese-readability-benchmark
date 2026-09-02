@@ -175,6 +175,8 @@ describe("runCell (mock)", () => {
     expect(provenanceHash({ ...task, audience: "別の読者" }, mockVerbose, byId("baseline"), models)).not.toBe(base);
     // モデル設定（id は同じ）
     expect(provenanceHash(task, { ...mockVerbose, mockStyle: "plain" }, byId("baseline"), models)).not.toBe(base);
+    // mock はフィクスチャの内容にも依存する（存在しないスタイルなら内容なしとして別のハッシュ）
+    expect(provenanceHash(task, { ...mockVerbose, mockStyle: "missing-style" }, byId("baseline"), models)).not.toBe(base);
     // 介入定義
     expect(provenanceHash(task, mockVerbose, byId("style-prompt"), models)).not.toBe(base);
     // 参照プロンプトファイルの内容

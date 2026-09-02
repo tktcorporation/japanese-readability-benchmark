@@ -67,13 +67,17 @@ const fixtureCache = new Map<string, Map<string, string>>();
 export function loadFixture(style: string): Map<string, string> {
   const cached = fixtureCache.get(style);
   if (cached) return cached;
-  const map = new Map<string, string>();
   const file = repoPath("fixtures", "mock", `${style}.md`);
-  if (existsSync(file)) {
-    const re = /^=== (\S+) ===\n([\s\S]*?)(?=^=== \S+ ===\n|(?![\s\S]))/gm;
-    for (const m of readText(file).matchAll(re)) map.set(m[1]!, (m[2] ?? "").trim());
-  }
+  const map = existsSync(file) ? parseFixture(readText(file)) : new Map<string, string>();
   fixtureCache.set(style, map);
+  return map;
+}
+
+/** 「=== id ===」で区切られたセクションを読む（CRLF でも可） */
+export function parseFixture(content: string): Map<string, string> {
+  const map = new Map<string, string>();
+  const re = /^=== (\S+) ===\r?\n([\s\S]*?)(?=^=== \S+ ===\r?\n|(?![\s\S]))/gm;
+  for (const m of content.matchAll(re)) map.set(m[1]!, (m[2] ?? "").trim());
   return map;
 }
 

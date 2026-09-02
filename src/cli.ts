@@ -16,6 +16,7 @@ import { loadJudgments, loadSamples as loadSamplesFile, loadScores } from "./sto
 import type { HumanPair, HumanVote, ModelDef, PairScheme, PairwiseJudgment, RubricJudgment, Sample } from "./types.ts";
 import { mapLimit } from "./util/async.ts";
 import { loadDotenv } from "./util/env.ts";
+import { assertRunId } from "./util/run-id.ts";
 import { appendJsonl, ensureDir, readJson, readJsonl, repoPath, writeJson, writeText } from "./util/fs.ts";
 
 // .env があれば読む（すでに設定済みの環境変数は上書きしない）
@@ -37,7 +38,7 @@ function parseSchemes(value: string): PairScheme[] {
 }
 
 function runDir(runId: string): string {
-  return repoPath("results", "runs", runId);
+  return repoPath("results", "runs", assertRunId(runId));
 }
 
 function files(runId: string) {

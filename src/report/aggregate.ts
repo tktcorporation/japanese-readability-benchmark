@@ -108,10 +108,14 @@ function statsFor(rows: Record<string, number>[], keys: string[]): Record<string
   return out;
 }
 
+/**
+ * 改善率（%）。基準が 0 で介入後が 0 でないときは率が定義できないので NaN を返す
+ * （呼び出し側は率を省き、差分と「基準 0」を示す）。基準も介入後も 0 なら 0
+ */
 export function improvementPct(base: number, next: number, key: string): number {
   const dir = METRIC_DIRECTION[key] ?? "higher";
   if (!Number.isFinite(base) || !Number.isFinite(next)) return NaN;
-  if (base === 0) return next === 0 ? 0 : dir === "lower" ? -Infinity : Infinity;
+  if (base === 0) return next === 0 ? 0 : NaN;
   const raw = dir === "lower" ? (base - next) / Math.abs(base) : (next - base) / Math.abs(base);
   return round(raw * 100, 1);
 }
@@ -392,8 +396,10 @@ function matchedComparison(
     }
     if (!next.length) continue;
     delta[k] = round(mean(next) - mean(base), 4);
-    pct[k] = improvementPct(mean(base), mean(next), k);
     matchedN[k] = next.length;
+    // 基準が 0 で率が定義できないときは pct に入れない（JSON で null になる Infinity/NaN を残さない）
+    const p = improvementPct(mean(base), mean(next), k);
+    if (Number.isFinite(p)) pct[k] = p;
   }
   return { delta, improvementPct: pct, matched: pairs.length, matchedN };
 }

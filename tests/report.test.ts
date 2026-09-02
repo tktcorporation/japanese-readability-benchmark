@@ -39,6 +39,18 @@ describe("improvementPct", () => {
     expect(improvementPct(2, 3, "jreadability")).toBe(50);
     expect(improvementPct(4, 4, "judgeOverall")).toBe(0);
     expect(improvementPct(0, 0, "textlintPer1k")).toBe(0);
+    // 基準が 0 なら率は定義できない（Infinity を JSON に残さない）
+    expect(Number.isNaN(improvementPct(0, 2, "textlintPer1k"))).toBe(true);
+  });
+  it("基準が 0 の指標は改善率を省き、差分と「基準 0」を表示する", () => {
+    const ss = [sample("b0", "m", "baseline"), sample("x0", "m", "x")];
+    const sc = [score("b0", ss[0]!, { textlintPer1k: 0 }), score("x0", ss[1]!, { textlintPer1k: 2 })];
+    const r = aggregate({ runId: "r", samples: ss, scores: sc, judgments: [] });
+    const cell = r.cells.find((c) => c.interventionId === "x")!;
+    expect(cell.improvementPct?.textlintPer1k).toBeUndefined();
+    expect(cell.delta?.textlintPer1k).toBe(2);
+    expect(JSON.stringify(r)).not.toContain("null");
+    expect(renderMarkdown(r)).toContain("2.00 (+2.00, 基準 0)");
   });
 });
 

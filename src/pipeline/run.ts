@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { fixText } from "../metrics/textlint.ts";
 import { createProvider } from "../providers/index.ts";
@@ -33,6 +34,14 @@ export function cellKey(sourceId: string, modelId: string, interventionId: strin
  *   セルのモデル設定、介入のステップ定義、ステップが参照するプロンプトファイルの内容、
  *   rewrite ステップが明示するモデルの設定
  */
+/** モデル設定の来歴。mock はフィクスチャの内容で出力が決まるので、その内容も含める */
+function modelProvenance(model: ModelDef | undefined): unknown {
+  if (!model) return null;
+  if (model.provider !== "mock") return model;
+  const fixture = repoPath("fixtures", "mock", `${model.mockStyle ?? "plain"}.md`);
+  return { ...model, fixtureContent: existsSync(fixture) ? readText(fixture) : null };
+}
+
 export function provenanceHash(source: Source, model: ModelDef | undefined, intervention: InterventionDef, allModels: ModelDef[]): string {
   const modelById = new Map(allModels.map((m) => [m.id, m]));
   const steps = intervention.steps.map((step) => {
@@ -43,7 +52,7 @@ export function provenanceHash(source: Source, model: ModelDef | undefined, inte
         return {
           ...step,
           promptContent: readText(resolve(intervention.dir, step.prompt)),
-          modelConfig: step.model ? (modelById.get(step.model) ?? null) : undefined,
+          modelConfig: step.model ? (modelProvenance(modelById.get(step.model)) ?? null) : undefined,
         };
       case "textlint-fix": {
         // config 省略時はリポジトリ直下の .textlintrc.json を使うので、その内容も来歴に含める
@@ -60,7 +69,7 @@ export function provenanceHash(source: Source, model: ModelDef | undefined, inte
       source: sourceHash(source),
       title: source.title,
       audience: source.audience ?? "一般的な読者",
-      model: model ?? null,
+      model: modelProvenance(model),
       steps,
     }),
   );

@@ -81,11 +81,14 @@ function cellRows(cells: CellReport[], keys: string[], withModel: boolean): stri
     ...keys.map((k) => {
       const v = fmtStat(k, c.metrics[k], c.samples - c.errors);
       const imp = c.improvementPct?.[k];
-      if (imp === undefined) return v;
+      const delta = c.delta?.[k];
+      if (imp === undefined && delta === undefined) return v;
       // 改善率は、その指標が両方にある baseline との対だけで計算している。一部しか対にできなければ件数を添える
       const pairsUsed = c.matchedN?.[k] ?? c.matched;
       const partial = pairsUsed !== undefined && pairsUsed < c.samples - c.errors ? `, 対 ${pairsUsed} 件` : "";
-      return `${v} (${fmtPct(imp)}${partial})`;
+      // 基準が 0 で率が出せないときは差分と「基準 0」を示す
+      const change = imp === undefined ? `${delta !== undefined && delta > 0 ? "+" : ""}${fmt(k, delta)}, 基準 0` : fmtPct(imp);
+      return `${v} (${change}${partial})`;
     }),
     fmtWin(c.judgeWinRate),
     fmtWin(c.humanWinRate),
