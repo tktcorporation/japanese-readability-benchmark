@@ -45,6 +45,12 @@ function modelProvenance(model: ModelDef | undefined): unknown {
   return { ...model, fixtureContent: existsSync(fixture) ? readText(fixture) : null };
 }
 
+/**
+ * パイプライン実装の版。出力に影響する実装変更（プロバイダの既定パラメータ、テンプレートの描画、
+ * textlint-fix の適用方法など）をしたら上げる。既存 run のサンプルは陳腐化して作り直される
+ */
+export const PIPELINE_VERSION = "pipeline-v1";
+
 export function provenanceHash(source: Source, model: ModelDef | undefined, intervention: InterventionDef, allModels: ModelDef[]): string {
   const modelById = new Map(allModels.map((m) => [m.id, m]));
   const steps = intervention.steps.map((step) => {
@@ -71,6 +77,7 @@ export function provenanceHash(source: Source, model: ModelDef | undefined, inte
   return sha256(
     "provenance",
     JSON.stringify({
+      pipeline: PIPELINE_VERSION,
       // タスク（生成する）とコーパス（原文をそのまま使う）では同じ内容でも意味が違うので、種別も含める
       sourceType: source.type,
       source: sourceHash(source),
@@ -184,6 +191,11 @@ function nonEmpty(text: string, where: string): string {
   const trimmed = text.trim();
   if (trimmed.length === 0) throw new Error(`${where} の応答が空です`);
   return trimmed;
+}
+
+function addUsage(a: StepTrace["usage"], b: NonNullable<StepTrace["usage"]>): NonNullable<StepTrace["usage"]> {
+  const sum = (x?: number, y?: number) => (x === undefined && y === undefined ? undefined : (x ?? 0) + (y ?? 0));
+  return { inputTokens: sum(a?.inputTokens, b.inputTokens), outputTokens: sum(a?.outputTokens, b.outputTokens) };
 }
 
 export function renderTemplate(template: string, vars: Record<string, string>): string {
@@ -316,7 +328,8 @@ async function executeStep(step: StepDef, ctx: StepContext): Promise<{ trace: St
         const prompt = renderTemplate(template, { text: escapeDelimiters(text), audience: ctx.audience, title: ctx.source.title });
         const res = await provider.generate({ prompt, purpose: "rewrite", sourceId: ctx.source.id });
         text = nonEmpty(res.text, `rewrite（${model.id}、${i + 1} 回目）`);
-        usage = res.usage;
+        // 複数パスの消費トークンは合算して記録する（最後のパスだけでは実験のコストを過小に見せる）
+        if (res.usage) usage = addUsage(usage, res.usage);
         servedBy = res.servedBy;
       }
       return { trace: { type: "rewrite", ms: 0, modelId: model.id, servedBy, usage }, text };

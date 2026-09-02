@@ -117,6 +117,15 @@ describe("removeCodeBlocks（箇条書きの続きの段落）", () => {
   });
 });
 
+describe("stripMarkdown のインライン コード", () => {
+  it("同じ長さのバッククォート列で区切られたコードを 1 つの X にする", () => {
+    expect(stripMarkdown("これは `x` です。")).toBe("これは X です。");
+    expect(stripMarkdown("これは ``a`b`` です。")).toBe("これは X です。");
+    expect(stripMarkdown("`a` と ``b``。")).toBe("X と X。");
+    expect(stripMarkdown("閉じない `code です。")).toBe("閉じない `code です。");
+  });
+});
+
 describe("stripMarkdown の表", () => {
   it("表の区切り行は落とし、セルの本文は残す", () => {
     const md = "| 項目 | 説明です。 |\n| --- | :---: |\n|:-|-:|\n| A | 本文です。 |";

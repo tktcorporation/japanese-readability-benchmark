@@ -67,7 +67,8 @@ export function removeCodeBlocks(text: string): string {
 
 export function stripMarkdown(text: string): string {
   return removeCodeBlocks(text)
-    .replace(/`[^`\n]*`/g, "X")
+    // インライン コード。区切りは同じ長さのバッククォート列（`` `foo` `` のような多重区切りも 1 つの X にする）
+    .replace(/(`+)(?!`)((?:(?!\1)[^\n])+?)\1(?!`)/g, "X")
     .replace(/^\s{0,3}#{1,6}\s+/gm, "")
     .replace(/^\s*[-*+]\s+/gm, "")
     .replace(/^\s*\d+[.)]\s+/gm, "")

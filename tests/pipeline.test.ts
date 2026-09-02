@@ -4,7 +4,7 @@ import { surfaceMetrics } from "../src/metrics/surface.ts";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { corpusSource, dependentsOf, needsModelForCorpus, provenanceHash, renderTemplate, reuseLevels, reusedInterventions, runCell, sampleId, sourceHash, taskSource } from "../src/pipeline/run.ts";
+import { corpusSource, dependentsOf, needsModelForCorpus, PIPELINE_VERSION, provenanceHash, renderTemplate, reuseLevels, reusedInterventions, runCell, sampleId, sourceHash, taskSource } from "../src/pipeline/run.ts";
 import type { CorpusDoc, InterventionDef, Sample } from "../src/types.ts";
 
 const { models } = loadModels();
@@ -183,6 +183,25 @@ describe("runCell (mock)", () => {
     } finally {
       MockProvider.prototype.generate = orig;
     }
+  });
+  it("rewrite の passes を増やすと消費トークンを合算して記録する", async () => {
+    const { MockProvider } = await import("../src/providers/mock.ts");
+    const orig = MockProvider.prototype.generate;
+    MockProvider.prototype.generate = async function (req) {
+      return { text: req.purpose === "rewrite" ? "書き直しました。" : "本文です。", servedBy: "mock", latencyMs: 0, usage: { inputTokens: 10, outputTokens: 5 } };
+    };
+    try {
+      const rp = byId("rewrite-pass");
+      const three: InterventionDef = { ...rp, id: "rw-3", steps: [{ type: "generate" }, { type: "rewrite", prompt: "prompts/rewrite.md", passes: 3 }] };
+      const s = await runCell(task, mockVerbose, three, 0, opts);
+      expect(s.error).toBeUndefined();
+      expect(s.steps[1]).toMatchObject({ type: "rewrite", usage: { inputTokens: 30, outputTokens: 15 } });
+    } finally {
+      MockProvider.prototype.generate = orig;
+    }
+  });
+  it("パイプライン実装の版は来歴に含まれる", () => {
+    expect(PIPELINE_VERSION).toMatch(/^pipeline-v\d+$/);
   });
   it("コーパス起点では generate を飛ばし、原文から始める", async () => {
     const doc = loadCorpus()[0]!;
