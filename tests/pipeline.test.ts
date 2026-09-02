@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loadCorpus, loadInterventions, loadModels, loadTasks, parseCorpusDoc } from "../src/config.ts";
+import { idSchema, loadCorpus, loadInterventions, loadModels, loadTasks, parseCorpusDoc } from "../src/config.ts";
 import { surfaceMetrics } from "../src/metrics/surface.ts";
 import { corpusSource, dependentsOf, needsModelForCorpus, renderTemplate, reuseLevels, reusesIntervention, runCell, sampleId, taskSource } from "../src/pipeline/run.ts";
 import type { InterventionDef, Sample } from "../src/types.ts";
@@ -38,6 +38,13 @@ describe("config", () => {
     const doc = parseCorpusDoc("---\nid: x\ntitle: タイトル\n---\n本文。", "fallback");
     expect(doc).toMatchObject({ id: "x", title: "タイトル", text: "本文。" });
     expect(parseCorpusDoc("本文だけ", "fb")).toMatchObject({ id: "fb", text: "本文だけ" });
+  });
+  it("id は英数字と _ . + - に限り、__ を含まない（サンプル id の区切りと衝突しない）", () => {
+    for (const ok of ["baseline", "style-prompt+textlint", "fable-5.1", "gpt_5"]) expect(idSchema.safeParse(ok).success).toBe(true);
+    for (const ng of ["日本語", "a__b", "-lead", "has space", "", "a/b"]) expect(idSchema.safeParse(ng).success).toBe(false);
+    expect(() => parseCorpusDoc("---\nid: 規程\n---\n本文", "fb")).toThrow();
+    // 変換なしで連結するので、+ を含む id も一意のまま
+    expect(sampleId("t", "m", "style-prompt+textlint", 0)).toBe("t__m__style-prompt+textlint__0");
   });
   it("renderTemplate は {{var}} を展開する", () => {
     expect(renderTemplate("A {{ text }} B {{audience}} {{none}}", { text: "x", audience: "y" })).toBe("A x B y ");
@@ -134,6 +141,11 @@ describe("runCell (mock)", () => {
     expect(needsModelForCorpus(byId("baseline"))).toBe(false);
     expect(needsModelForCorpus(byId("textlint-fix"))).toBe(false);
     expect(needsModelForCorpus(byId("rewrite-pass"))).toBe(true);
+  });
+  it("本文が空なら成功サンプルにせずエラーとして記録する", async () => {
+    const empty = corpusSource({ id: "empty", title: "空", text: "   \n" });
+    const s = await run(empty, undefined, "baseline");
+    expect(s.error).toContain("空");
   });
   it("モデルなしでタスクを実行するとエラーとして記録する", async () => {
     const s = await runCell(task, undefined, byId("baseline"), 0, opts);

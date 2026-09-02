@@ -5,8 +5,17 @@ import { z } from "zod";
 import type { CorpusDoc, InterventionDef, ModelDef, TaskDef } from "./types.ts";
 import { readText, repoPath } from "./util/fs.ts";
 
+/**
+ * 設定で使う id。サンプル id は `<source>__<model>__<intervention>__<index>` と連結するので、
+ * 英数字・`_` `.` `+` `-` に限り、区切りの `__` を含まないものだけ許す（変換で潰れて衝突しないように）。
+ */
+export const idSchema = z
+  .string()
+  .regex(/^[A-Za-z0-9][A-Za-z0-9_.+-]*$/, "id は英数字で始まり、英数字と _ . + - だけを使ってください")
+  .refine((s) => !s.includes("__"), { message: "id に __ は使えません" });
+
 const taskSchema = z.object({
-  id: z.string(),
+  id: idSchema,
   category: z.string(),
   title: z.string(),
   prompt: z.string(),
@@ -15,7 +24,7 @@ const taskSchema = z.object({
 });
 
 const modelSchema = z.object({
-  id: z.string(),
+  id: idSchema,
   provider: z.enum(["anthropic", "openai", "mock"]),
   model: z.string(),
   label: z.string().optional(),
@@ -56,7 +65,7 @@ const stepSchema = z.discriminatedUnion("type", [
 ]);
 
 const interventionSchema = z.object({
-  id: z.string(),
+  id: idSchema,
   name: z.string(),
   description: z.string().optional(),
   steps: z.array(stepSchema).min(1),
@@ -80,7 +89,7 @@ export function parseCorpusDoc(raw: string, fallbackId: string): CorpusDoc {
   const meta = m ? ((parseYaml(m[1] ?? "") as Record<string, unknown> | null) ?? {}) : {};
   const text = (m ? (m[2] ?? "") : raw).trim();
   return {
-    id: typeof meta.id === "string" ? meta.id : fallbackId,
+    id: idSchema.parse(typeof meta.id === "string" ? meta.id : fallbackId),
     title: typeof meta.title === "string" ? meta.title : fallbackId,
     note: typeof meta.note === "string" ? meta.note : undefined,
     audience: typeof meta.audience === "string" ? meta.audience : undefined,

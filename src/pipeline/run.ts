@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 import { fixText } from "../metrics/textlint.ts";
 import { createProvider } from "../providers/index.ts";
 import type { CorpusDoc, InterventionDef, ModelDef, Sample, StepDef, StepTrace, TaskDef } from "../types.ts";
-import { readText, repoPath, sha256, slug } from "../util/fs.ts";
+import { readText, repoPath, sha256 } from "../util/fs.ts";
 
 /** 生成の起点。タスク（プロンプト）かコーパス（既存文章）のどちらか */
 export type Source =
@@ -82,8 +82,9 @@ export function reuseLevels(interventions: InterventionDef[]): InterventionDef[]
   return Array.from({ length: levels.length }, (_, k) => levels[k] ?? []);
 }
 
+/** id は config で検証済み（英数字と _ . + -、`__` を含まない）なので、変換せずに `__` で連結する */
 export function sampleId(sourceId: string, modelId: string, interventionId: string, index: number): string {
-  return [slug(sourceId), slug(modelId), slug(interventionId), String(index)].join("__");
+  return [sourceId, modelId, interventionId, String(index)].join("__");
 }
 
 /**
@@ -152,6 +153,8 @@ export async function runCell(
       }
     }
     if (text === undefined) throw new Error("パイプラインが文章を生成しませんでした（generate ステップがない？）");
+    // 空の本文を成功として残すと、以後スキップされ続けるうえに指標なしのサンプルとして数えられる
+    if (text.trim().length === 0) throw new Error("生成された文章が空です");
     return { ...base, text, inputText: inputText === text ? undefined : inputText };
   } catch (err) {
     return { ...base, text: text ?? "", inputText, error: err instanceof Error ? err.message : String(err) };
