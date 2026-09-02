@@ -7,14 +7,17 @@
  * コードブロックを落とす。
  * - フェンス（``` / ~~~、3 文字以上、行頭 0〜3 スペース）: 同じ文字で同じ長さ以上の閉じフェンスまで。閉じなければ末尾まで（CommonMark と同じ）
  * - インデントコード（空行の後に 4 スペース以上またはタブで始まる行）: インデントが続く間。ネストした箇条書きは除く
+ * - 引用（> ）の中のフェンス・インデントコードも同様に扱う（引用記号を外してから判定する）
  */
 export function removeCodeBlocks(text: string): string {
   const lines = text.split("\n");
   const out: string[] = [];
   let fence: { char: string; length: number } | undefined;
   let prevBlank = true;
+  // 引用記号（> ）を外した中身。フェンスやインデントの判定はこちらで行う
+  const unquote = (line: string) => line.replace(/^(?: {0,3}> ?)+/, "");
   for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i]!;
+    const line = unquote(lines[i]!);
     if (fence) {
       const close = line.match(/^ {0,3}(`{3,}|~{3,})\s*$/);
       if (close && close[1]![0] === fence.char && close[1]!.length >= fence.length) {
@@ -31,13 +34,13 @@ export function removeCodeBlocks(text: string): string {
     }
     if (prevBlank && /^(?: {4,}|\t)\S/.test(line) && !/^(?: {4,}|\t)(?:[-*+]|\d+[.)])\s/.test(line)) {
       let j = i;
-      while (j < lines.length && (/^(?: {4,}|\t)/.test(lines[j]!) || lines[j]!.trim() === "")) j += 1;
+      while (j < lines.length && (/^(?: {4,}|\t)/.test(unquote(lines[j]!)) || unquote(lines[j]!).trim() === "")) j += 1;
       i = j - 1;
       out.push("");
       prevBlank = true;
       continue;
     }
-    out.push(line);
+    out.push(lines[i]!);
     prevBlank = line.trim() === "";
   }
   return out.join("\n");
