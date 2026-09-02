@@ -5,7 +5,7 @@
   "description": "LLM が出力する日本語の読みやすさを、モデル間比較と改善施策（ルール・lint・プロンプト）の両面から評価するベンチマーク",
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": ">=20.12"
   },
   "scripts": {
     "bench": "tsx src/cli.ts",

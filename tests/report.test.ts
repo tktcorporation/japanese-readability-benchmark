@@ -105,6 +105,15 @@ describe("aggregate", () => {
     expect(flipped.cells.find((c) => c.modelId === "m1" && c.interventionId === "baseline")?.judgeWinRate).toMatchObject({ wins: 1, n: 1 });
     expect(flipped.cells.find((c) => c.modelId === "m1" && c.interventionId === "textlint-fix")?.judgeWinRate).toBeUndefined();
   });
+  it("モデル比較の勝率は両方が選択中の baseline の判定だけを数える", () => {
+    const extra: Judgment[] = [
+      { kind: "pairwise", scheme: "models", sourceId: "t1", aSampleId: "m1-fix", bSampleId: "m2-fix", judgeModel: "j", promptVersion: "v", verdictAB: "A", verdictBA: "A", verdict: "A", rationale: "", createdAt: "" },
+    ];
+    const r = aggregate({ runId: "r", samples, scores, judgments: [...judgments, ...extra] });
+    expect(r.models.find((m) => m.modelId === "m1")?.judgeWinRate).toMatchObject({ wins: 0, losses: 1, n: 1 });
+    const flipped = aggregate({ runId: "r", samples, scores, judgments: [...judgments, ...extra], baselineId: "textlint-fix" });
+    expect(flipped.models.find((m) => m.modelId === "m1")?.judgeWinRate).toMatchObject({ wins: 1, losses: 0, n: 1 });
+  });
   it("判定モデルが複数あるときは 1 つに絞って集計する", () => {
     const other: Judgment[] = [
       { kind: "rubric", sampleId: "m1-base", judgeModel: "z", promptVersion: "v", createdAt: "", rationale: "", scores: { readability: 5, clarity: 5, naturalness: 5, concision: 5, structure: 5, overall: 5 } },

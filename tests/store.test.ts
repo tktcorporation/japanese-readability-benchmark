@@ -73,6 +73,17 @@ describe("store", () => {
     expect(loadSamples(file).map((s) => s.id)).toEqual(["base", "b", "fresh"]);
   });
 
+  it("再利用の連鎖（C→B→A）は A が変わったら B も C も捨てる", () => {
+    const file = join(dir, "chain.jsonl");
+    const a = sample("a", "A の本文。");
+    const b = { ...sample("b", "B の本文。"), steps: [{ type: "generate" as const, ms: 0, reusedFrom: "a", reusedHash: sha256(a.text) }] };
+    const c = { ...sample("c", "C の本文。"), steps: [{ type: "generate" as const, ms: 0, reusedFrom: "b", reusedHash: sha256(b.text) }] };
+    for (const s of [a, b, c]) appendJsonl(file, s);
+    expect(loadSamples(file).map((s) => s.id)).toEqual(["a", "b", "c"]);
+    appendJsonl(file, sample("a", "A を作り直した。")); // B を作り直す前に中断した状態
+    expect(loadSamples(file).map((s) => s.id)).toEqual(["a"]);
+  });
+
   it("採点は後勝ちで重複を除き、本文が変わった記録・ハッシュのない記録・孤立した記録を捨てる", () => {
     const scores = loadScores(scoresFile, loadSamples(samplesFile));
     expect(scores.map((s) => [s.sampleId, s.metrics.v])).toEqual([["b", 3]]);

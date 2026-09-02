@@ -21,14 +21,26 @@ import { readJsonl, sha256 } from "./util/fs.ts";
 export function loadSamples(path: string): Sample[] {
   const byId = new Map<string, Sample>();
   for (const s of readJsonl<Sample>(path)) byId.set(s.id, s);
-  const all = Array.from(byId.values());
-  const hashes = sampleHashes(all);
-  return all.filter((s) => {
-    const reuse = s.steps.find((st) => st.type === "generate" && st.reusedFrom);
-    if (!reuse?.reusedFrom || !reuse.reusedHash) return true;
-    const current = hashes.get(reuse.reusedFrom);
-    return current === undefined || current === reuse.reusedHash;
-  });
+  const hashes = sampleHashes(Array.from(byId.values()));
+  // 再利用元が新鮮で、かつ記録したハッシュと一致するときだけ新鮮。連鎖（C→B→A）は再帰的に辿る
+  const fresh = new Map<string, boolean>();
+  const isFresh = (id: string, visiting = new Set<string>()): boolean => {
+    const cached = fresh.get(id);
+    if (cached !== undefined) return cached;
+    if (visiting.has(id)) return false; // 循環は不正とみなす
+    visiting.add(id);
+    const s = byId.get(id);
+    let result = true;
+    const reuse = s?.steps.find((st) => st.type === "generate" && st.reusedFrom);
+    if (s && reuse?.reusedFrom && reuse.reusedHash) {
+      const current = hashes.get(reuse.reusedFrom);
+      result = current === undefined || (current === reuse.reusedHash && isFresh(reuse.reusedFrom, visiting));
+    }
+    visiting.delete(id);
+    fresh.set(id, result);
+    return result;
+  };
+  return Array.from(byId.values()).filter((s) => isFresh(s.id));
 }
 
 export function sampleHashes(samples: Sample[]): Map<string, string> {

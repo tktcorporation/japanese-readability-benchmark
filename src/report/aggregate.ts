@@ -175,6 +175,8 @@ export function aggregate(input: AggregateInput): Report {
       addVerdict(w, j.verdict);
       judgeCellWin.set(key, w);
     } else {
+      // モデル比較は両方が選択中の baseline の出力であること
+      if (a.interventionId !== baselineId || b.interventionId !== baselineId) continue;
       const wa = judgeModelWin.get(a.modelId) ?? emptyWinRate();
       addVerdict(wa, j.verdict);
       judgeModelWin.set(a.modelId, wa);
@@ -193,8 +195,10 @@ export function aggregate(input: AggregateInput): Report {
     const a = sampleById.get(p.aSampleId);
     const b = sampleById.get(p.bSampleId);
     if (a === undefined || b === undefined || a.text !== p.aText || b.text !== p.bText) return false;
-    // 介入比較のペアは B が選択中の baseline であること
-    return p.scheme !== "interventions" || b.interventionId === baselineId;
+    // 介入比較のペアは B が、モデル比較のペアは A・B の両方が、選択中の baseline であること
+    return p.scheme === "interventions"
+      ? b.interventionId === baselineId
+      : a.interventionId === baselineId && b.interventionId === baselineId;
   });
   const pairById = new Map(validPairs.map((p) => [p.id, p]));
   const humanVotes = (input.humanVotes ?? []).filter((v) => pairById.has(v.pairId));

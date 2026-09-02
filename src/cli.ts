@@ -15,14 +15,11 @@ import { renderMarkdown } from "./report/markdown.ts";
 import { loadJudgments, loadSamples as loadSamplesFile, loadScores } from "./store.ts";
 import type { HumanPair, HumanVote, ModelDef, PairScheme, PairwiseJudgment, RubricJudgment, Sample } from "./types.ts";
 import { mapLimit } from "./util/async.ts";
+import { loadDotenv } from "./util/env.ts";
 import { appendJsonl, ensureDir, readJson, readJsonl, repoPath, writeJson, writeText } from "./util/fs.ts";
 
 // .env があれば読む（すでに設定済みの環境変数は上書きしない）
-try {
-  process.loadEnvFile(repoPath(".env"));
-} catch {
-  // .env がなければ何もしない
-}
+loadDotenv(repoPath(".env"));
 
 const program = new Command();
 program.name("bench").description("LLM が出力する日本語の読みやすさを評価するベンチマーク");
