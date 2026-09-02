@@ -12,7 +12,10 @@ export interface HumanSummary {
   medianSeconds?: number;
 }
 
-export function summarizeVotes(pairs: HumanPair[], votes: HumanVote[]): HumanSummary {
+export function summarizeVotes(pairs: HumanPair[], allVotes: HumanVote[]): HumanSummary {
+  // 現在の pairs にあるペアへの投票だけを数える（作り直す前の古いペア ID は無視）
+  const pairIds = new Set(pairs.map((p) => p.id));
+  const votes = allVotes.filter((v) => pairIds.has(v.pairId));
   const byPair = new Map<string, HumanVote[]>();
   for (const v of votes) byPair.set(v.pairId, [...(byPair.get(v.pairId) ?? []), v]);
   const perPair: HumanSummary["perPair"] = [];

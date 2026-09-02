@@ -23,10 +23,15 @@ export interface CellReport {
   samples: number;
   errors: number;
   metrics: Record<string, MetricStat>;
-  /** baseline との差（同じモデル） */
+  /**
+   * baseline との差。同じ課題・モデル・サンプル番号の baseline と対にできたサンプルだけで計算する
+   * （介入が一部の課題やモデルにしかないとき、構成の違いが改善に見えないように）
+   */
   delta?: Record<string, number>;
-  /** 改善率（%）。指標の向きを考慮し、正なら改善 */
+  /** 改善率（%）。指標の向きを考慮し、正なら改善。delta と同じ対応サンプルで計算 */
   improvementPct?: Record<string, number>;
+  /** baseline と対にできたサンプル数 */
+  matched?: number;
   /** LLM の pairwise 判定: この介入 vs baseline */
   judgeWinRate?: WinRate;
   /** 人手投票: この介入 vs baseline */
@@ -223,6 +228,15 @@ export function aggregate(input: AggregateInput): Report {
     if (n > 0) agreement = { n, agree, rate: round(agree / n, 3) };
   }
 
+  // --- baseline との対応付け ------------------------------------------------
+  const baselineByKey = new Map<string, Sample>();
+  for (const s of samples) {
+    if (s.interventionId === baselineId && !s.error) baselineByKey.set(`${s.sourceId}|${s.modelId}|${s.sampleIndex}`, s);
+  }
+  // コーパス起点で modelId が "none" の baseline（原文）にもフォールバックする
+  const baselineOf = (s: Sample) =>
+    baselineByKey.get(`${s.sourceId}|${s.modelId}|${s.sampleIndex}`) ?? baselineByKey.get(`${s.sourceId}|none|${s.sampleIndex}`);
+
   // --- セル集計 -------------------------------------------------------------
   const cellSamples = new Map<string, Sample[]>();
   for (const s of samples) {
@@ -245,18 +259,7 @@ export function aggregate(input: AggregateInput): Report {
   }
   for (const cell of cells) {
     if (cell.interventionId === baselineId) continue;
-    const base = cells.find((c) => c.modelId === cell.modelId && c.interventionId === baselineId)
-      ?? cells.find((c) => c.modelId === "none" && c.interventionId === baselineId);
-    if (!base) continue;
-    cell.delta = {};
-    cell.improvementPct = {};
-    for (const k of metricKeys) {
-      const b = base.metrics[k];
-      const n = cell.metrics[k];
-      if (!b || !n) continue;
-      cell.delta[k] = round(n.mean - b.mean, 4);
-      cell.improvementPct[k] = improvementPct(b.mean, n.mean, k);
-    }
+    Object.assign(cell, matchedComparison(cellSamples.get(`${cell.modelId}|${cell.interventionId}`) ?? [], baselineOf, rows, metricKeys));
   }
   cells.sort((x, y) => x.modelId.localeCompare(y.modelId) || x.interventionId.localeCompare(y.interventionId));
 
@@ -282,20 +285,9 @@ export function aggregate(input: AggregateInput): Report {
       humanWinRate: hwin.n ? hwin : undefined,
     };
   });
-  const baseAll = interventions.find((c) => c.interventionId === baselineId);
-  if (baseAll) {
-    for (const c of interventions) {
-      if (c.interventionId === baselineId) continue;
-      c.delta = {};
-      c.improvementPct = {};
-      for (const k of metricKeys) {
-        const b = baseAll.metrics[k];
-        const n = c.metrics[k];
-        if (!b || !n) continue;
-        c.delta[k] = round(n.mean - b.mean, 4);
-        c.improvementPct[k] = improvementPct(b.mean, n.mean, k);
-      }
-    }
+  for (const c of interventions) {
+    if (c.interventionId === baselineId) continue;
+    Object.assign(c, matchedComparison(samples.filter((s) => s.interventionId === c.interventionId), baselineOf, rows, metricKeys));
   }
 
   // --- モデル比較（baseline のみ） ------------------------------------------
@@ -356,6 +348,43 @@ function mergeWin(into: WinRate, from: WinRate): void {
   into.ties += from.ties;
   into.n += from.n;
   into.rate = into.n ? round((into.wins + into.ties / 2) / into.n, 3) : NaN;
+}
+
+/**
+ * 介入サンプルを同じ課題・モデル・サンプル番号の baseline と対にして、対のある観測だけで差と改善率を出す。
+ * 対が 1 つもなければ undefined。
+ */
+function matchedComparison(
+  targets: Sample[],
+  baselineOf: (s: Sample) => Sample | undefined,
+  rows: Map<string, Record<string, number>>,
+  keys: string[],
+): Pick<CellReport, "delta" | "improvementPct" | "matched"> | undefined {
+  const pairs: [Sample, Sample][] = [];
+  for (const s of targets) {
+    if (s.error) continue;
+    const base = baselineOf(s);
+    if (base && !base.error && base.id !== s.id) pairs.push([s, base]);
+  }
+  if (!pairs.length) return undefined;
+  const delta: Record<string, number> = {};
+  const pct: Record<string, number> = {};
+  for (const k of keys) {
+    const next: number[] = [];
+    const base: number[] = [];
+    for (const [s, b] of pairs) {
+      const nv = rows.get(s.id)?.[k];
+      const bv = rows.get(b.id)?.[k];
+      if (typeof nv === "number" && typeof bv === "number" && Number.isFinite(nv) && Number.isFinite(bv)) {
+        next.push(nv);
+        base.push(bv);
+      }
+    }
+    if (!next.length) continue;
+    delta[k] = round(mean(next) - mean(base), 4);
+    pct[k] = improvementPct(mean(base), mean(next), k);
+  }
+  return { delta, improvementPct: pct, matched: pairs.length };
 }
 
 export function majority(choices: PairVerdict[]): PairVerdict {

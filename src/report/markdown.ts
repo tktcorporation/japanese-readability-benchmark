@@ -81,7 +81,10 @@ function cellRows(cells: CellReport[], keys: string[], withModel: boolean): stri
     ...keys.map((k) => {
       const v = fmtStat(k, c.metrics[k], c.samples - c.errors);
       const imp = c.improvementPct?.[k];
-      return imp === undefined ? v : `${v} (${fmtPct(imp)})`;
+      if (imp === undefined) return v;
+      // 改善率は baseline と対にできたサンプルだけで計算している。一部しか対にできなければ件数を添える
+      const partial = c.matched !== undefined && c.matched < c.samples - c.errors ? `, 対 ${c.matched} 件` : "";
+      return `${v} (${fmtPct(imp)}${partial})`;
     }),
     fmtWin(c.judgeWinRate),
     fmtWin(c.humanWinRate),
@@ -100,7 +103,7 @@ export function renderMarkdown(report: Report): string {
     out.push(`判定モデル: ${report.judgeModel}${others.length ? `（他に ${others.join(", ")} の判定あり。\`--judge\` で切り替え）` : ""}`);
   }
   out.push("");
-  out.push("矢印は望ましい方向（↓ 小さいほど良い / ↑ 大きいほど良い）。介入の表の括弧内は baseline に対する改善率。");
+  out.push("矢印は望ましい方向（↓ 小さいほど良い / ↑ 大きいほど良い）。介入の表の括弧内は baseline に対する改善率で、同じ課題・モデル・サンプル番号の baseline と対にできたサンプルだけで計算する（対が一部なら件数を添える）。");
   out.push("`[n=k]` は、その指標が n 列の件数より少ない k 件だけで計算されていることを示す（`judge --limit` や中断した `score` のあと）。");
   out.push("");
 

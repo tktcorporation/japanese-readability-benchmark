@@ -17,8 +17,27 @@ import type { HumanPair, HumanVote, ModelDef, PairScheme, PairwiseJudgment, Rubr
 import { mapLimit } from "./util/async.ts";
 import { appendJsonl, ensureDir, readJson, readJsonl, repoPath, writeJson, writeText } from "./util/fs.ts";
 
+// .env があれば読む（すでに設定済みの環境変数は上書きしない）
+try {
+  process.loadEnvFile(repoPath(".env"));
+} catch {
+  // .env がなければ何もしない
+}
+
 const program = new Command();
 program.name("bench").description("LLM が出力する日本語の読みやすさを評価するベンチマーク");
+
+const PAIR_SCHEMES: readonly PairScheme[] = ["interventions", "models"];
+
+function parseSchemes(value: string): PairScheme[] {
+  const list = parseList(value) ?? [];
+  for (const s of list) {
+    if (!(PAIR_SCHEMES as readonly string[]).includes(s)) {
+      throw new Error(`--schemes "${s}" は不正です。候補: ${PAIR_SCHEMES.join(", ")}`);
+    }
+  }
+  return list as PairScheme[];
+}
 
 function runDir(runId: string): string {
   return repoPath("results", "runs", runId);
@@ -222,7 +241,7 @@ program
       });
     }
     if (o.mode === "pairwise" || o.mode === "both") {
-      const schemes = (parseList(o.schemes) ?? []) as PairScheme[];
+      const schemes = parseSchemes(o.schemes);
       const done = new Set(
         existing
           .filter(
@@ -284,7 +303,7 @@ program
     const f = files(o.run);
     const samples = loadSamples(o.run);
     const pairs = buildHumanPairs(samples, {
-      schemes: (parseList(o.schemes) ?? []) as PairScheme[],
+      schemes: parseSchemes(o.schemes),
       baselineId: o.baseline,
       sources: sourceInfos(),
       max: o.max ? Number(o.max) : undefined,

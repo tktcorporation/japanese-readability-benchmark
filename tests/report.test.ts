@@ -68,6 +68,30 @@ describe("aggregate", () => {
     const fix = report.interventions.find((c) => c.interventionId === "textlint-fix")!;
     expect(fix.judgeWinRate).toMatchObject({ wins: 1, ties: 1, n: 2, rate: 0.75 });
     expect(fix.improvementPct?.textlintPer1k).toBeCloseTo(35.7, 0);
+    expect(fix.matched).toBe(2);
+  });
+  it("改善率は対にできた baseline だけと比べる（介入が一部の課題にしかなくても構成の差を改善と見なさない）", () => {
+    // m1 の介入は易しい課題 t2 にしかない。t2 の baseline は t1 より良い
+    const ss = [
+      sample("t1-base", "m1", "baseline", "t1"),
+      sample("t2-base", "m1", "baseline", "t2"),
+      sample("t2-x", "m1", "x", "t2"),
+    ];
+    const sc = [
+      score("t1-base", ss[0]!, { textlintPer1k: 20 }),
+      score("t2-base", ss[1]!, { textlintPer1k: 4 }),
+      score("t2-x", ss[2]!, { textlintPer1k: 4 }),
+    ];
+    const r = aggregate({ runId: "r", samples: ss, scores: sc, judgments: [] });
+    const x = r.cells.find((c) => c.interventionId === "x")!;
+    // 全 baseline の平均（12）と比べると +66% に見えるが、対にした t2 の baseline と比べれば 0%
+    expect(x.improvementPct?.textlintPer1k).toBe(0);
+    expect(x.delta?.textlintPer1k).toBe(0);
+    expect(x.matched).toBe(1);
+    expect(r.interventions.find((c) => c.interventionId === "x")?.improvementPct?.textlintPer1k).toBe(0);
+    // 対にできる baseline が 1 つもなければ改善率は出さない
+    const orphan = aggregate({ runId: "r", samples: [ss[0]!, sample("t9-x", "m1", "x", "t9")], scores: [sc[0]!, score("t9-x", ss[2]!, { textlintPer1k: 1 })], judgments: [] });
+    expect(orphan.cells.find((c) => c.interventionId === "x")?.improvementPct).toBeUndefined();
   });
   it("判定モデルが複数あるときは 1 つに絞って集計する", () => {
     const other: Judgment[] = [
@@ -134,7 +158,10 @@ describe("人手評価", () => {
       { pairId: p.id, choice: "A", leftWasA: false, raterId: "r2", createdAt: "", seconds: 20 },
       { pairId: p.id, choice: "B", leftWasA: true, raterId: "r3", createdAt: "" },
     ];
-    const summary = summarizeVotes(pairs, votes);
+    const stale: HumanVote = { pairId: "old-pair", choice: "A", leftWasA: true, raterId: "r9", createdAt: "", seconds: 999 };
+    const summary = summarizeVotes(pairs, [...votes, stale]);
+    // 作り直す前の古いペアへの投票は、合計・評価者数・回答時間のどれにも含めない
+    expect(summary.votes).toBe(3);
     expect(summary.raters).toBe(3);
     expect(summary.perPair[0]).toMatchObject({ verdict: "A", a: 2, b: 1 });
     expect(summary.interRaterAgreement).toMatchObject({ pairs: 1, agree: 0 });
