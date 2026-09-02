@@ -37,10 +37,12 @@ describe("config", () => {
       expect(new Set(list.map((x) => x.id)).size).toBe(list.length);
     }
   });
-  it("frontmatter 付き Markdown を解釈する", () => {
+  it("frontmatter 付き Markdown を解釈する（CRLF でも）", () => {
     const doc = parseCorpusDoc("---\nid: x\ntitle: タイトル\n---\n本文。", "fallback");
     expect(doc).toMatchObject({ id: "x", title: "タイトル", text: "本文。" });
     expect(parseCorpusDoc("本文だけ", "fb")).toMatchObject({ id: "fb", text: "本文だけ" });
+    const crlf = parseCorpusDoc("---\r\nid: y\r\ntitle: 題\r\naudience: 読者\r\n---\r\n本文。\r\n", "fallback");
+    expect(crlf).toMatchObject({ id: "y", title: "題", audience: "読者", text: "本文。" });
   });
   it("id は英数字と _ . + - に限り、__ を含まない（サンプル id の区切りと衝突しない）", () => {
     for (const ok of ["baseline", "style-prompt+textlint", "fable-5.1", "gpt_5"]) expect(idSchema.safeParse(ok).success).toBe(true);
@@ -182,6 +184,17 @@ describe("runCell (mock)", () => {
       expect(provenanceHash(task, mockVerbose, { ...sp, dir: tmp }, models)).not.toBe(withPrompt);
     } finally {
       rmSync(tmp, { recursive: true, force: true });
+    }
+    // textlint-fix が config 省略時に使う既定の .textlintrc.json の内容
+    const tf = byId("textlint-fix");
+    const withDefault = provenanceHash(task, mockVerbose, tf, models);
+    const tmp2 = mkdtempSync(join(tmpdir(), "jrb-prov2-"));
+    try {
+      writeFileSync(join(tmp2, "custom.textlintrc.json"), JSON.stringify({ rules: {} }));
+      const explicit: InterventionDef = { ...tf, dir: tmp2, steps: tf.steps.map((st) => (st.type === "textlint-fix" ? { ...st, config: "custom.textlintrc.json" } : st)) };
+      expect(provenanceHash(task, mockVerbose, explicit, models)).not.toBe(withDefault);
+    } finally {
+      rmSync(tmp2, { recursive: true, force: true });
     }
     // rewrite ステップが明示するモデルの設定
     const rp = byId("rewrite-pass");

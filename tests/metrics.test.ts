@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { splitSentences, stripMarkdown } from "../src/metrics/sentences.ts";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { METRICS_VERSION, scoreSample, scoringHashOf } from "../src/metrics/index.ts";
 import { surfaceMetrics } from "../src/metrics/surface.ts";
 import { fixText, lintText } from "../src/metrics/textlint.ts";
 import { loadFixture } from "../src/providers/mock.ts";
@@ -51,6 +55,24 @@ describe("surfaceMetrics", () => {
     const m = await surfaceMetrics("");
     expect(m.sentences).toBe(0);
     expect(m.meanSentenceLength).toBe(0);
+  });
+});
+
+describe("採点設定のハッシュ", () => {
+  it("textlint 設定の内容が変わると変わり、採点記録に付く", async () => {
+    const base = scoringHashOf();
+    expect(base).toHaveLength(64);
+    expect(METRICS_VERSION).toMatch(/^metrics-v\d+$/);
+    const tmp = mkdtempSync(join(tmpdir(), "jrb-scoring-"));
+    try {
+      const other = join(tmp, ".textlintrc.json");
+      writeFileSync(other, JSON.stringify({ rules: { "preset-ja-technical-writing": { "sentence-length": { max: 50 } } } }));
+      expect(scoringHashOf(other)).not.toBe(base);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+    const rec = await scoreSample({ id: "s", runId: "r", sourceType: "task", sourceId: "t", modelId: "m", interventionId: "baseline", sampleIndex: 0, text: PLAIN, steps: [], createdAt: "" });
+    expect(rec.scoringHash).toBe(base);
   });
 });
 

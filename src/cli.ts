@@ -6,7 +6,7 @@ import { summarizeVotes } from "./human/aggregate.ts";
 import { buildHumanPairs } from "./human/pairs.ts";
 import { createHumanEvalServer } from "./human/server.ts";
 import { buildPairs, contextHashOf, judgeConfigHashOf, judgePairwise, judgeRubric, type SourceInfo } from "./judge/index.ts";
-import { scoreSample } from "./metrics/index.ts";
+import { scoreSample, scoringHashOf } from "./metrics/index.ts";
 import { PAIRWISE_PROMPT_VERSION, RUBRIC_PROMPT_VERSION } from "./judge/prompts.ts";
 import { cellKey, corpusSource, dependentsOf, needsModelForCorpus, provenanceHash, reuseLevels, runCell, sampleId, taskSource, type Source } from "./pipeline/run.ts";
 import { createProvider } from "./providers/index.ts";
@@ -97,7 +97,10 @@ function loadDerived(runId: string, samples: Sample[]) {
   const f = files(runId);
   const contextHashes = new Map(Array.from(sourceInfos().values()).map((s) => [s.id, contextHashOf(s)]));
   const judgeConfigHashes = new Map(loadModels().models.map((m) => [m.id, judgeConfigHashOf(m)]));
-  return { scores: loadScores(f.scores, samples), judgments: loadJudgments(f.judgments, samples, { contextHashes, judgeConfigHashes }) };
+  return {
+    scores: loadScores(f.scores, samples, { scoringHash: scoringHashOf() }),
+    judgments: loadJudgments(f.judgments, samples, { contextHashes, judgeConfigHashes }),
+  };
 }
 
 function sourceInfos(): Map<string, SourceInfo> {

@@ -65,11 +65,18 @@ function isCurrent(hashes: Map<string, string>, sampleId: string, recordHash: st
   return current !== undefined && recordHash !== undefined && current === recordHash;
 }
 
-export function loadScores(path: string, samples: Sample[]): ScoreRecord[] {
+export interface LoadScoresOptions {
+  /** 現在の採点設定ハッシュ（scoringHashOf）。渡すと、別の設定で計算した採点を捨てる */
+  scoringHash?: string;
+}
+
+export function loadScores(path: string, samples: Sample[], opts: LoadScoresOptions = {}): ScoreRecord[] {
   const hashes = sampleHashes(samples);
   const byId = new Map<string, ScoreRecord>();
   for (const r of readJsonl<ScoreRecord>(path)) byId.set(r.sampleId, r);
-  return Array.from(byId.values()).filter((r) => isCurrent(hashes, r.sampleId, r.textHash));
+  return Array.from(byId.values()).filter(
+    (r) => isCurrent(hashes, r.sampleId, r.textHash) && (opts.scoringHash === undefined || r.scoringHash === opts.scoringHash),
+  );
 }
 
 export function judgmentKey(j: Judgment): string {

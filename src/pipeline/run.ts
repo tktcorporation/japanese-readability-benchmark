@@ -45,8 +45,11 @@ export function provenanceHash(source: Source, model: ModelDef | undefined, inte
           promptContent: readText(resolve(intervention.dir, step.prompt)),
           modelConfig: step.model ? (modelById.get(step.model) ?? null) : undefined,
         };
-      case "textlint-fix":
-        return { ...step, configContent: step.config ? readText(resolve(intervention.dir, step.config)) : undefined };
+      case "textlint-fix": {
+        // config 省略時はリポジトリ直下の .textlintrc.json を使うので、その内容も来歴に含める
+        const configPath = step.config ? resolve(intervention.dir, step.config) : repoPath(".textlintrc.json");
+        return { ...step, configContent: readText(configPath) };
+      }
       default:
         return step;
     }

@@ -1,7 +1,36 @@
+import { existsSync } from "node:fs";
 import type { Sample, ScoreRecord } from "../types.ts";
-import { sha256 } from "../util/fs.ts";
+import { readText, repoPath, sha256 } from "../util/fs.ts";
 import { surfaceMetrics } from "./surface.ts";
 import { lintText } from "./textlint.ts";
+
+/**
+ * 指標の実装版。表層指標や jReadability の計算方法を変えたら上げる。
+ * 採点設定ハッシュに含まれ、古い版で計算した採点は陳腐化して再計算される。
+ */
+export const METRICS_VERSION = "metrics-v1";
+
+/** 採点に影響する依存パッケージ。インストール済みの版を採点設定ハッシュに含める */
+const SCORING_PACKAGES = ["textlint", "textlint-rule-preset-ja-technical-writing", "kuromojin"];
+
+function installedVersion(pkg: string): string {
+  const file = repoPath("node_modules", pkg, "package.json");
+  if (!existsSync(file)) return "missing";
+  try {
+    return String((JSON.parse(readText(file)) as { version?: string }).version ?? "unknown");
+  } catch {
+    return "unknown";
+  }
+}
+
+/**
+ * 採点設定のハッシュ。指標の実装版・textlint 設定の内容・依存パッケージの版のどれかが変わると変わる。
+ * ScoreRecord に記録し、読み込み時に現在の値と一致しない採点は捨てる
+ */
+export function scoringHashOf(textlintConfig = repoPath(".textlintrc.json")): string {
+  const config = existsSync(textlintConfig) ? readText(textlintConfig) : "";
+  return sha256("scoring", METRICS_VERSION, config, ...SCORING_PACKAGES.map((p) => `${p}@${installedVersion(p)}`));
+}
 
 /**
  * 指標の向き。report で「改善率」を計算するときに使う。
@@ -51,6 +80,7 @@ export async function scoreSample(sample: Sample, textlintConfig?: string): Prom
   return {
     sampleId: sample.id,
     textHash: sha256(sample.text),
+    scoringHash: scoringHashOf(textlintConfig),
     sourceId: sample.sourceId,
     modelId: sample.modelId,
     interventionId: sample.interventionId,

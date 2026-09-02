@@ -4,6 +4,7 @@ import { extname, join, normalize } from "node:path";
 import { z } from "zod";
 import type { HumanPair, HumanVote } from "../types.ts";
 import { appendJsonl, readJson, readJsonl, repoPath } from "../util/fs.ts";
+import { assignPairs } from "./assign.ts";
 
 const voteSchema = z.object({
   pairId: z.string().min(1),
@@ -44,7 +45,7 @@ async function readBody(req: IncomingMessage): Promise<string> {
 
 /**
  * 人手評価用の小さな HTTP サーバー。
- * - GET  /api/pairs?rater=ID   まだその評価者が答えていないペアを返す（本文は含む）
+ * - GET  /api/pairs?rater=ID   その評価者に出すペアを返す（投票が少ないペア優先、評価者ごとに決定的な順、上限は累積）
  * - POST /api/vote             投票を votes.jsonl に追記（同じ評価者の同じペアへの再投票は 409、--per-rater の上限超過は 403）
  * - GET  /api/stats            投票数の概要
  * - それ以外                    web/ 配下の静的ファイル
@@ -59,17 +60,9 @@ export function createHumanEvalServer(opts: ServeOptions) {
     try {
       if (req.method === "GET" && url.pathname === "/api/pairs") {
         const rater = url.searchParams.get("rater") ?? "";
-        // 現在の pairs.json にあるペアへの投票だけを数える（作り直す前の古いペア ID は無視）
-        const answered = new Set(
-          readJsonl<HumanVote>(opts.votesFile)
-            .filter((v) => v.raterId === rater && byId.has(v.pairId))
-            .map((v) => v.pairId),
-        );
-        const remaining = pairs.filter((p) => !answered.has(p.id));
-        // 上限は累積（回答済みを差し引く）。リロードしても上限を超えて出さない
-        const allowance = opts.perRater ? Math.max(0, opts.perRater - answered.size) : remaining.length;
-        const limited = remaining.slice(0, allowance);
-        json(res, 200, { total: pairs.length, remaining: remaining.length, pairs: limited });
+        // 投票が少ないペアを優先し、評価者ごとに決定的にシャッフルし、上限は累積で適用する
+        const { remaining, assigned } = assignPairs(pairs, readJsonl<HumanVote>(opts.votesFile), rater, opts.perRater);
+        json(res, 200, { total: pairs.length, remaining: remaining.length, pairs: assigned });
         return;
       }
       if (req.method === "POST" && url.pathname === "/api/vote") {

@@ -110,7 +110,8 @@ export function loadTasks(dir = repoPath("tasks")): TaskDef[] {
 
 /** frontmatter 付き Markdown からコーパス文書を読む */
 export function parseCorpusDoc(raw: string, fallbackId: string): CorpusDoc {
-  const m = raw.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+  // CRLF のファイルでも frontmatter を認識する
+  const m = raw.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n)?([\s\S]*)$/);
   const meta = m ? ((parseYaml(m[1] ?? "") as Record<string, unknown> | null) ?? {}) : {};
   const text = (m ? (m[2] ?? "") : raw).trim();
   return {

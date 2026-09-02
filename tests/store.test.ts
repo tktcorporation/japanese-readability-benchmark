@@ -159,6 +159,20 @@ describe("store", () => {
     expect(scores.map((s) => [s.sampleId, s.metrics.v])).toEqual([["b", 3]]);
   });
 
+  it("採点設定が変わった採点は捨てる（scoringHash を渡したとき）", () => {
+    const sFile = join(dir, "sh-samples.jsonl");
+    const scFile = join(dir, "sh-scores.jsonl");
+    const x = sample("x", "本文。");
+    appendJsonl(sFile, x);
+    appendJsonl(scFile, { ...score("x", sha256(x.text), 1), scoringHash: "scoring-v1" });
+    const samples = loadSamples(sFile);
+    expect(loadScores(scFile, samples)).toHaveLength(1);
+    expect(loadScores(scFile, samples, { scoringHash: "scoring-v1" })).toHaveLength(1);
+    expect(loadScores(scFile, samples, { scoringHash: "scoring-v2" })).toHaveLength(0);
+    appendJsonl(scFile, score("x", sha256(x.text), 2)); // scoringHash なし
+    expect(loadScores(scFile, samples, { scoringHash: "scoring-v1" })).toHaveLength(0);
+  });
+
   it("判定も同様に捨て、さらに現在のプロンプト版だけを残す", () => {
     const judgments = loadJudgments(judgmentsFile, loadSamples(samplesFile));
     const keys = judgments.map((j) => (j.kind === "rubric" ? `${j.judgeModel}:${j.sampleId}` : `pair:${j.aSampleId}${j.bSampleId}`));

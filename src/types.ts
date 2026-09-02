@@ -182,6 +182,8 @@ export interface ScoreRecord {
   sampleId: string;
   /** 採点時点の本文ハッシュ。サンプルが再生成されたら不一致になり、記録は捨てられる */
   textHash?: string;
+  /** 採点設定（指標の実装版・textlint 設定・依存パッケージの版）のハッシュ。変われば記録は捨てられる */
+  scoringHash?: string;
   sourceId: string;
   modelId: string;
   interventionId: string;
