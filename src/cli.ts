@@ -1,7 +1,7 @@
 #!/usr/bin/env -S node --import tsx
 import { existsSync } from "node:fs";
 import { Command } from "commander";
-import { loadAllSources, loadCorpus, loadInterventions, loadModels, loadTasks, parseList, pick } from "./config.ts";
+import { assertRewriteModels, loadAllSources, loadCorpus, loadInterventions, loadModels, loadTasks, parseList, pick } from "./config.ts";
 import { summarizeVotes } from "./human/aggregate.ts";
 import { buildHumanPairs } from "./human/pairs.ts";
 import { createHumanEvalServer } from "./human/server.ts";
@@ -81,6 +81,11 @@ function loadSamples(runId: string): Sample[] {
   return loadSamplesFile(files(runId).samples, { provenanceHashes: provenanceHashes() });
 }
 
+/** --baseline が現在の介入定義に存在することを確かめる（綴り間違いで空の結果を書き出さないように） */
+function assertBaseline(id: string): string {
+  return pick(loadInterventions(), [id], "基準の介入")[0]!.id;
+}
+
 function parsePositiveInt(name: string, value: string): number {
   const n = Number(value);
   if (!Number.isInteger(n) || n <= 0) throw new Error(`${name} は 1 以上の整数で指定してください: "${value}"`);
@@ -131,7 +136,7 @@ program
     for (const m of models) console.log(`- ${m.id}  ${m.provider}:${m.model}${m.label ? `  ${m.label}` : ""}`);
     console.log(`\n## judge\n- ${judge.model}`);
     console.log("\n## interventions");
-    for (const i of loadInterventions()) console.log(`- ${i.id}  ${i.name}  [${i.steps.map((s) => s.type).join(" → ")}]`);
+    for (const i of assertRewriteModels(loadInterventions(), models)) console.log(`- ${i.id}  ${i.name}  [${i.steps.map((s) => s.type).join(" → ")}]`);
   });
 
 // ---------------------------------------------------------------------------
@@ -149,7 +154,7 @@ program
   .action(async (o: { run: string; tasks?: string; corpus?: string | boolean; models?: string; interventions?: string; samples: string; concurrency: string; force: boolean }) => {
     const { models: allModels } = loadModels();
     const models = pick(allModels, parseList(o.models), "モデル");
-    const allInterventions = loadInterventions();
+    const allInterventions = assertRewriteModels(loadInterventions(), allModels);
     const interventions = pick(allInterventions, parseList(o.interventions), "介入");
     const perCell = parsePositiveInt("--samples", o.samples);
     const concurrency = parsePositiveInt("--concurrency", o.concurrency);
@@ -273,6 +278,7 @@ program
     const limit = o.limit === undefined ? Infinity : parseNonNegativeInt("--limit", o.limit);
     const concurrency = parsePositiveInt("--concurrency", o.concurrency);
     const f = files(o.run);
+    const baselineId = assertBaseline(o.baseline);
     const cfg = loadModels();
     const judgeModel = pick(cfg.models, [o.judge ?? cfg.judge.model], "モデル")[0]!;
     const provider = createProvider(judgeModel);
@@ -317,7 +323,7 @@ program
           )
           .map((j) => `${j.scheme}|${j.aSampleId}|${j.bSampleId}`),
       );
-      const pairs = schemes.flatMap((scheme) => buildPairs(samples, scheme, o.baseline)).filter((p) => !done.has(`${p.scheme}|${p.a.id}|${p.b.id}`)).slice(0, Math.max(0, budget));
+      const pairs = schemes.flatMap((scheme) => buildPairs(samples, scheme, baselineId)).filter((p) => !done.has(`${p.scheme}|${p.a.id}|${p.b.id}`)).slice(0, Math.max(0, budget));
       log(`pairwise: ${pairs.length} ペア × 2 回（提示順入れ替え）`);
       await mapLimit(pairs, concurrency, async (p) => {
         const src = sources.get(p.sourceId) ?? { id: p.sourceId, title: p.sourceId };
@@ -342,11 +348,12 @@ program
   .option("--judge <modelId>", "集計に使う判定モデル id（複数の判定モデルで judge したとき）")
   .action((o: { run: string; baseline: string; judge?: string }) => {
     const f = files(o.run);
+    const baselineId = assertBaseline(o.baseline);
     const samples = loadSamples(o.run);
     const { scores, judgments } = loadDerived(o.run, samples);
     const humanVotes = readJsonl<HumanVote>(f.votes);
     const humanPairs = existsSync(f.pairs) ? readJson<HumanPair[]>(f.pairs) : undefined;
-    const report = aggregate({ runId: o.run, samples, scores, judgments, humanVotes, humanPairs, baselineId: o.baseline, judgeModel: o.judge, sources: sourceInfos() });
+    const report = aggregate({ runId: o.run, samples, scores, judgments, humanVotes, humanPairs, baselineId, judgeModel: o.judge, sources: sourceInfos() });
     if (report.judgeModels.length > 1 && !o.judge) {
       log(`注意: 判定モデルが複数あります（${report.judgeModels.join(", ")}）。${report.judgeModel} で集計しました。--judge で切り替えられます`);
     }
@@ -368,10 +375,11 @@ program
   .option("--seed <n>", "シャッフルのシード", "42")
   .action((o: { run: string; schemes: string; baseline: string; max?: string; seed: string }) => {
     const f = files(o.run);
+    const baselineId = assertBaseline(o.baseline);
     const samples = loadSamples(o.run);
     const pairs = buildHumanPairs(samples, {
       schemes: parseSchemes(o.schemes),
-      baselineId: o.baseline,
+      baselineId,
       sources: sourceInfos(),
       max: o.max === undefined ? undefined : parsePositiveInt("--max", o.max),
       seed: parseNonNegativeInt("--seed", o.seed),

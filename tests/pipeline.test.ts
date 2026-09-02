@@ -4,7 +4,7 @@ import { surfaceMetrics } from "../src/metrics/surface.ts";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { corpusSource, dependentsOf, needsModelForCorpus, provenanceHash, renderTemplate, reuseLevels, reusesIntervention, runCell, sampleId, sourceHash, taskSource } from "../src/pipeline/run.ts";
+import { corpusSource, dependentsOf, needsModelForCorpus, provenanceHash, renderTemplate, reuseLevels, reusedInterventions, runCell, sampleId, sourceHash, taskSource } from "../src/pipeline/run.ts";
 import type { InterventionDef, Sample } from "../src/types.ts";
 
 const { models } = loadModels();
@@ -60,11 +60,11 @@ describe("config", () => {
 });
 
 describe("reuseLevels", () => {
-  const def = (id: string, reuse?: string): InterventionDef => ({
+  const def = (id: string, reuse?: string | string[]): InterventionDef => ({
     id,
     name: id,
     dir: "",
-    steps: [{ type: "generate", ...(reuse ? { reuse } : {}) }],
+    steps: (Array.isArray(reuse) ? reuse : [reuse]).map((r) => ({ type: "generate", ...(r ? { reuse: r } : {}) })),
   });
   it("reuse の連鎖を深さごとの段階に分ける", () => {
     const levels = reuseLevels([def("c", "b"), def("a"), def("b", "a"), def("d", "a")]);
@@ -77,6 +77,14 @@ describe("reuseLevels", () => {
   it("循環参照はエラー", () => {
     expect(() => reuseLevels([def("a", "b"), def("b", "a")])).toThrow("循環");
     expect(() => reuseLevels([def("a", "a")])).toThrow("循環");
+  });
+  it("複数の介入を再利用する介入は、そのすべてより後の段階に置き、どちらの巻き添えにもなる", () => {
+    const all = [def("a"), def("b", "a"), def("c", ["a", "b"])];
+    expect(reusedInterventions(all[2]!)).toEqual(["a", "b"]);
+    expect(reuseLevels(all).map((l) => l.map((i) => i.id))).toEqual([["a"], ["b"], ["c"]]);
+    expect(dependentsOf("b", all).map((i) => i.id)).toEqual(["c"]);
+    expect(dependentsOf("a", all).map((i) => i.id)).toEqual(["b", "c"]);
+    expect(() => reuseLevels([def("a", ["x", "b"]), def("b", "a")])).toThrow("循環");
   });
   it("dependentsOf は推移的に依存する介入を返す", () => {
     const all = [def("a"), def("b", "a"), def("c", "b"), def("d"), def("e", "d")];
@@ -107,9 +115,9 @@ describe("runCell (mock)", () => {
     expect(s.error).toBeUndefined();
     expect(s.steps[0]).toMatchObject({ type: "generate", reusedFrom: base.id });
     expect(s.steps[0]!.reusedHash).toHaveLength(64);
-    expect(reusesIntervention(byId("textlint-fix"))).toBe("baseline");
-    expect(reusesIntervention(byId("baseline"))).toBeUndefined();
-    expect(reusesIntervention(byId("style-prompt"))).toBeUndefined();
+    expect(reusedInterventions(byId("textlint-fix"))).toEqual(["baseline"]);
+    expect(reusedInterventions(byId("baseline"))).toEqual([]);
+    expect(reusedInterventions(byId("style-prompt"))).toEqual([]);
   });
   it("再利用先の baseline がなければエラーとして記録する", async () => {
     const s = await runCell(task, mockVerbose, byId("textlint-fix"), 7, opts);

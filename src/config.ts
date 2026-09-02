@@ -167,6 +167,18 @@ export function loadInterventions(dir = repoPath("interventions")): Intervention
   return assertReuseTargets(defs);
 }
 
+/** rewrite ステップで明示した model が config/models.yaml に存在することを確かめる（綴り間違いで生成だけ課金されるのを防ぐ） */
+export function assertRewriteModels<T extends { id: string; steps: StepDef[] }>(interventions: T[], models: { id: string }[]): T[] {
+  const ids = new Set(models.map((m) => m.id));
+  for (const def of interventions) {
+    for (const step of def.steps) {
+      if (step.type !== "rewrite" || !step.model || ids.has(step.model)) continue;
+      throw new Error(`介入 "${def.id}" の rewrite ステップの model "${step.model}" が見つかりません（候補: ${Array.from(ids).sort().join(", ")}）`);
+    }
+  }
+  return interventions;
+}
+
 /** generate ステップの reuse 先が実在する別の介入を指していることを確かめる（綴り間違いは実行前に止める） */
 export function assertReuseTargets<T extends { id: string; steps: StepDef[] }>(defs: T[]): T[] {
   const ids = new Set(defs.map((d) => d.id));

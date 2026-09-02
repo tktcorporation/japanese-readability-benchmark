@@ -87,10 +87,11 @@ export interface RunOptions {
   lookup?: (sourceId: string, modelId: string, interventionId: string, index: number) => Sample | undefined;
 }
 
-/** この介入が他の介入の出力を再利用するか（実行順の決定に使う） */
-export function reusesIntervention(intervention: InterventionDef): string | undefined {
-  for (const s of intervention.steps) if (s.type === "generate" && s.reuse) return s.reuse;
-  return undefined;
+/** この介入が出力を再利用している介入 id（重複なし・出現順）。実行順と巻き添え再生成の判断に使う */
+export function reusedInterventions(intervention: InterventionDef): string[] {
+  const ids: string[] = [];
+  for (const s of intervention.steps) if (s.type === "generate" && s.reuse && !ids.includes(s.reuse)) ids.push(s.reuse);
+  return ids;
 }
 
 /** id の出力を（推移的に）再利用している介入。作り直したときに一緒に作り直す対象 */
@@ -101,7 +102,7 @@ export function dependentsOf(id: string, all: InterventionDef[]): InterventionDe
   while (queue.length) {
     const current = queue.shift()!;
     for (const i of all) {
-      if (reusesIntervention(i) === current && !seen.has(i.id)) {
+      if (reusedInterventions(i).includes(current) && !seen.has(i.id)) {
         seen.add(i.id);
         out.push(i);
         queue.push(i.id);
@@ -123,13 +124,16 @@ export function reuseLevels(interventions: InterventionDef[]): InterventionDef[]
   const resolve = (i: InterventionDef): number => {
     const cached = depth.get(i.id);
     if (cached !== undefined) return cached;
-    const dep = reusesIntervention(i);
+    // 複数の介入を再利用するなら、そのすべてが終わった後の段階に置く
+    const deps = reusedInterventions(i);
     let d = 0;
-    if (dep) {
+    if (deps.length) {
       if (visiting.has(i.id)) throw new Error(`介入の reuse が循環しています: ${i.id}`);
       visiting.add(i.id);
-      const target = byId.get(dep);
-      d = target ? resolve(target) + 1 : 1;
+      for (const dep of deps) {
+        const target = byId.get(dep);
+        d = Math.max(d, target ? resolve(target) + 1 : 1);
+      }
       visiting.delete(i.id);
     }
     depth.set(i.id, d);

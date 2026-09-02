@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { assertUniqueIds, loadAllSources, loadCorpus, loadInterventions, loadModels, loadTasks } from "../src/config.ts";
+import { assertRewriteModels, assertUniqueIds, loadAllSources, loadCorpus, loadInterventions, loadModels, loadTasks } from "../src/config.ts";
 
 const root = mkdtempSync(join(tmpdir(), "jrb-config-"));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -46,6 +46,14 @@ describe("設定の検証", () => {
     const d = dirWith("reserved-model", { "none.yaml": models("none"), "ok.yaml": models("mock-x") });
     expect(() => loadModels(join(d, "none.yaml"))).toThrow("予約");
     expect(loadModels(join(d, "ok.yaml")).models.map((m) => m.id)).toEqual(["mock-x"]);
+  });
+  it("rewrite ステップの model が models.yaml に無ければ実行前にエラー", () => {
+    const rewrite = (model?: string) => [{ id: "rw", steps: [{ type: "rewrite" as const, prompt: "p.md", ...(model ? { model } : {}) }] }];
+    const models = [{ id: "mock-plain" }];
+    expect(() => assertRewriteModels(rewrite("opus-5x"), models)).toThrow('model "opus-5x"');
+    expect(assertRewriteModels(rewrite("mock-plain"), models)).toHaveLength(1);
+    expect(assertRewriteModels(rewrite(), models)).toHaveLength(1); // 省略時はセルのモデルを使う
+    expect(assertRewriteModels(loadInterventions(), loadModels().models).length).toBeGreaterThan(0); // 同梱の定義は整合している
   });
   it("同梱のタスクとコーパスは id がまたがって重複しない", () => {
     const { tasks, corpus } = loadAllSources();
