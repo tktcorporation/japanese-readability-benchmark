@@ -6,7 +6,8 @@
 /**
  * コードブロックを落とす。
  * - フェンス（``` / ~~~、3 文字以上。箇条書きの中で 4 スペース以上下がっていても、引用の中でも可）: 同じ文字で同じ長さ以上の閉じフェンスまで。閉じなければ末尾まで（CommonMark と同じ）
- * - インデントコード（空行の後に 4 スペース以上またはタブで始まる行）: インデントが続く間。ネストした箇条書きは除く
+ * - インデントコード（空行の後に、囲んでいる箇条書きの本文位置から 4 スペース以上またはタブで下がった行）: インデントが続く間。
+ *   箇条書きの項目の中の続きの段落（本文位置に揃えた段落）はコードではないので残す
  * - 引用（> ）の中のフェンス・インデントコードも同様に扱う（引用記号を外してから判定する）
  */
 export function removeCodeBlocks(text: string): string {
@@ -14,8 +15,11 @@ export function removeCodeBlocks(text: string): string {
   const out: string[] = [];
   let fence: { char: string; length: number } | undefined;
   let prevBlank = true;
+  // 囲んでいる箇条書きの本文位置（列）。ネストした分だけ積む
+  const listOffsets: number[] = [];
   // 引用記号（> ）を外した中身。フェンスやインデントの判定はこちらで行う
   const unquote = (line: string) => line.replace(/^(?: {0,3}> ?)+/, "");
+  const indentOf = (line: string) => (line.match(/^[ \t]*/)?.[0] ?? "").replace(/\t/g, "    ").length;
   for (let i = 0; i < lines.length; i += 1) {
     const line = unquote(lines[i]!);
     if (fence) {
@@ -32,16 +36,31 @@ export function removeCodeBlocks(text: string): string {
       fence = { char: open[1]![0]!, length: open[1]!.length };
       continue;
     }
-    if (prevBlank && /^(?: {4,}|\t)\S/.test(line) && !/^(?: {4,}|\t)(?:[-*+]|\d+[.)])\s/.test(line)) {
+    if (line.trim() === "") {
+      out.push(lines[i]!);
+      prevBlank = true;
+      continue;
+    }
+    const indent = indentOf(line);
+    // 本文位置より浅い行が来たら、その箇条書き（の入れ子）は終わり
+    while (listOffsets.length && indent < listOffsets[listOffsets.length - 1]!) listOffsets.pop();
+    const marker = line.match(/^([ \t]*)([-*+]|\d+[.)])([ \t]+)/);
+    const codeIndent = (listOffsets[listOffsets.length - 1] ?? 0) + 4;
+    if (!marker && prevBlank && indent >= codeIndent) {
       let j = i;
-      while (j < lines.length && (/^(?: {4,}|\t)/.test(unquote(lines[j]!)) || unquote(lines[j]!).trim() === "")) j += 1;
+      while (j < lines.length && (unquote(lines[j]!).trim() === "" || indentOf(unquote(lines[j]!)) >= codeIndent)) j += 1;
       i = j - 1;
       out.push("");
       prevBlank = true;
       continue;
     }
+    if (marker) {
+      // 項目の本文位置 = 記号の終わり + 空白（5 つ以上なら 1 つ分。残りはインデントコードになる）
+      const gap = marker[3]!.replace(/\t/g, "    ").length;
+      listOffsets.push(indentOf(marker[1]!) + marker[2]!.length + (gap > 4 ? 1 : gap));
+    }
     out.push(lines[i]!);
-    prevBlank = line.trim() === "";
+    prevBlank = false;
   }
   return out.join("\n");
 }

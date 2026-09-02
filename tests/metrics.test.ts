@@ -91,6 +91,32 @@ describe("removeCodeBlocks（箇条書きの中のフェンス）", () => {
   });
 });
 
+describe("removeCodeBlocks（箇条書きの続きの段落）", () => {
+  it("項目の本文位置に揃えた続きの段落は残し、そこから 4 スペース以上下がった行はコードとして落とす", () => {
+    const md = [
+      "- 手順です。",
+      "",
+      "  続きの段落です。",
+      "",
+      "    詳しい説明です。",
+      "",
+      "        code here",
+      "",
+      "1. 番号付きです。",
+      "",
+      "   番号付きの続きです。",
+      "",
+      "       more code",
+      "本文です。",
+      "",
+      "    top level code",
+      "終わりです。",
+    ].join("\n");
+    expect(removeCodeBlocks(md)).not.toMatch(/code here|more code|top level code/);
+    expect(splitSentences(md)).toEqual(["手順です。", "続きの段落です。", "詳しい説明です。", "番号付きです。", "番号付きの続きです。", "本文です。", "終わりです。"]);
+  });
+});
+
 describe("stripMarkdown の表", () => {
   it("表の区切り行は落とし、セルの本文は残す", () => {
     const md = "| 項目 | 説明です。 |\n| --- | :---: |\n|:-|-:|\n| A | 本文です。 |";
