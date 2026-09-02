@@ -1,4 +1,6 @@
+import { stripMarkdown } from "../metrics/sentences.ts";
 import { textlintToolchain } from "../metrics/textlint.ts";
+import { escapeDelimiters } from "../util/delimiters.ts";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { fixText } from "../metrics/textlint.ts";
@@ -247,6 +249,8 @@ export async function runCell(
     if (text === undefined) throw new Error("パイプラインが文章を生成しませんでした（generate ステップがない？）");
     // 空の本文を成功として残すと、以後スキップされ続けるうえに指標なしのサンプルとして数えられる
     if (text.trim().length === 0) throw new Error("生成された文章が空です");
+    // コードブロックだけの応答は採点できる本文が無く、指標が最良値に張り付いて平均を歪めるので失敗にする
+    if (stripMarkdown(text).trim().length === 0) throw new Error("生成された文章に本文がありません（コードブロックだけ）");
     return { ...base, text, inputText: inputText === text ? undefined : inputText };
   } catch (err) {
     return { ...base, text: text ?? "", inputText, error: err instanceof Error ? err.message : String(err) };
@@ -308,7 +312,8 @@ async function executeStep(step: StepDef, ctx: StepContext): Promise<{ trace: St
       let usage: StepTrace["usage"];
       let servedBy: string | undefined;
       for (let i = 0; i < (step.passes ?? 1); i += 1) {
-        const prompt = renderTemplate(template, { text, audience: ctx.audience, title: ctx.source.title });
+        // 本文に含まれる </text> などで区切りが閉じ、残りが指示として読まれないように無害化して埋め込む
+        const prompt = renderTemplate(template, { text: escapeDelimiters(text), audience: ctx.audience, title: ctx.source.title });
         const res = await provider.generate({ prompt, purpose: "rewrite", sourceId: ctx.source.id });
         text = nonEmpty(res.text, `rewrite（${model.id}、${i + 1} 回目）`);
         usage = res.usage;

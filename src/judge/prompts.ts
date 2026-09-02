@@ -1,4 +1,7 @@
 import { z } from "zod";
+import { escapeDelimiters } from "../util/delimiters.ts";
+
+export { escapeDelimiters };
 
 /**
  * 判定プロンプト。文言を変えたら VERSION を上げる（キャッシュキーと結果の互換性に使う）。
@@ -6,13 +9,6 @@ import { z } from "zod";
 export const RUBRIC_PROMPT_VERSION = "rubric-v2";
 export const PAIRWISE_PROMPT_VERSION = "pairwise-v2";
 
-/**
- * 評価対象の本文を <text> などの区切りに入れる前に、区切りと同じタグを無害化する。
- * 本文に </text> が含まれると区切りが閉じ、残りが判定の指示として読まれてしまう（XML の例やプロンプトインジェクション）
- */
-export function escapeDelimiters(text: string): string {
-  return text.replace(/<(\/?)(text(?:_a|_b)?)(\s*)>/gi, "&lt;$1$2$3&gt;");
-}
 
 export const JUDGE_SYSTEM = `あなたは日本語の文章品質を評価する専門家です。
 評価対象は「文章としての読みやすさ・分かりやすさ」だけです。内容の正確さ、情報量の多寡、意見への賛否は評価に含めません。

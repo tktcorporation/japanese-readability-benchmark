@@ -133,7 +133,7 @@ describe("surfaceMetrics", () => {
     expect(plain.sentences).toBeGreaterThan(5);
     expect(verbose.meanSentenceLength).toBeGreaterThan(plain.meanSentenceLength * 2);
     expect(verbose.longSentenceRatio).toBeGreaterThan(plain.longSentenceRatio);
-    expect(verbose.jreadability).toBeLessThan(plain.jreadability);
+    expect(verbose.jreadability!).toBeLessThan(plain.jreadability!);
     expect(verbose.nominalizationPer1k).toBeGreaterThan(plain.nominalizationPer1k);
   });
   it("文字種の割合は合計 1 以下で、漢字率は妥当な範囲", async () => {
@@ -156,6 +156,19 @@ describe("surfaceMetrics", () => {
     const m = await surfaceMetrics("");
     expect(m.sentences).toBe(0);
     expect(m.meanSentenceLength).toBe(0);
+  });
+});
+
+describe("本文の無いサンプル", () => {
+  it("コードブロックだけの本文には jReadability を付けない（採点記録からも落ちる）", async () => {
+    const codeOnly = "```js\nconst x = 1;\n```";
+    const m = await surfaceMetrics(codeOnly);
+    expect(m.sentences).toBe(0);
+    expect(m.jreadability).toBeUndefined();
+    const rec = await scoreSample({ id: "s", runId: "r", sourceType: "task", sourceId: "t", modelId: "m", interventionId: "baseline", sampleIndex: 0, text: codeOnly, steps: [], createdAt: "" });
+    expect(rec.metrics.jreadability).toBeUndefined();
+    expect(rec.metrics.chars).toBe(0);
+    expect((await surfaceMetrics(PLAIN)).jreadability).toBeGreaterThan(0);
   });
 });
 

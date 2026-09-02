@@ -43,7 +43,8 @@ export interface SurfaceMetrics {
   wagoRatio: number;
   verbRatio: number;
   particleRatio: number;
-  jreadability: number;
+  /** 文も語も無い（コードだけなど）本文には付けない */
+  jreadability?: number;
   /** 「れる/られる」（受け身・可能・尊敬）の 1 文あたり出現数 */
   rareruPerSentence: number;
   /** 「こと」「という」「もの」などの名詞化・迂言表現の 1000 文字あたり出現数 */
@@ -131,7 +132,9 @@ export async function surfaceMetrics(text: string): Promise<SurfaceMetrics> {
   const verbPct = (verbs / total) * 100;
   const particlePct = (particles / total) * 100;
   const meanLen = lens.length ? lens.reduce((a, b) => a + b, 0) / lens.length : 0;
-  const jreadability = 11.724 - 0.056 * meanLen - 0.126 * kangoPct - 0.042 * wagoPct - 0.145 * verbPct - 0.044 * particlePct;
+  // 文も語も無ければ式の切片（最良値）だけが残ってしまうので、指標を付けない
+  const hasProse = sentences.length > 0 && tokens.length > 0;
+  const jreadability = hasProse ? 11.724 - 0.056 * meanLen - 0.126 * kangoPct - 0.042 * wagoPct - 0.145 * verbPct - 0.044 * particlePct : undefined;
 
   const tenCounts = sentences.map((s) => s.match(/、/g)?.length ?? 0);
   const nominalizations = (plain.match(NOMINALIZATION) ?? []).length;
@@ -158,7 +161,7 @@ export async function surfaceMetrics(text: string): Promise<SurfaceMetrics> {
     wagoRatio: wagoPct / 100,
     verbRatio: verbPct / 100,
     particleRatio: particlePct / 100,
-    jreadability,
+    ...(jreadability === undefined ? {} : { jreadability }),
     rareruPerSentence: rareru / n,
     nominalizationPer1k: chars ? (nominalizations / chars) * 1000 : 0,
     listLines: (text.match(/^\s*([-*+]|\d+[.)])\s+/gm) ?? []).length,

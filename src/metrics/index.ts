@@ -63,12 +63,11 @@ export const HEADLINE_METRICS = [
 
 export async function scoreSample(sample: Sample, textlintConfig?: string): Promise<ScoreRecord> {
   const [surface, lint] = await Promise.all([surfaceMetrics(sample.text), lintText(sample.text, textlintConfig)]);
-  const metrics: Record<string, number> = {
-    ...surface,
-    textlintCount: lint.count,
-    textlintPer1k: lint.per1k,
-    textlintFixable: lint.fixableCount,
-  };
+  // 付けられなかった指標（本文の無い jReadability など）は記録しない。report では対にできた件数だけで集計される
+  const metrics: Record<string, number> = {};
+  for (const [k, v] of Object.entries({ ...surface, textlintCount: lint.count, textlintPer1k: lint.per1k, textlintFixable: lint.fixableCount })) {
+    if (typeof v === "number" && Number.isFinite(v)) metrics[k] = v;
+  }
   return {
     sampleId: sample.id,
     textHash: sha256(sample.text),
