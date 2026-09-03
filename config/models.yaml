@@ -1,0 +1,72 @@
+# 比較対象のモデル。id は結果ファイルやレポートで使う短い名前。
+#
+# provider:
+#   anthropic … ANTHROPIC_API_KEY（または `ant auth login` のプロファイル）
+#   openai    … OPENAI_API_KEY。baseUrl を指定すれば OpenAI 互換 API（Gemini 互換エンドポイント、Ollama など）も可
+#   mock      … API 不要。fixtures/mock/<mockStyle>/ の固定テキストを返す（テスト・デモ用）
+#
+# 注意:
+#   - Claude 4.7 以降は temperature 等のサンプリング指定を受け付けない。複数サンプルが欲しいときは `bench run --samples N`。
+#   - thinking は既定で adaptive。「素の出力」を思考なしで測りたいモデルは thinking: none を指定する
+#     （Opus 5 / Fable は省略時も adaptive で動く。Opus 4.8 / 4.7 は省略すると思考なし）。
+#   - fallbacks: true にすると refusal 時に別モデルへサーバー側で切り替わる。どのモデルの文章か曖昧になるので既定は off。
+
+models:
+  - id: fable-5.1
+    provider: anthropic
+    model: claude-fable-5-1
+    label: Claude Fable 5.1
+
+  - id: opus-5
+    provider: anthropic
+    model: claude-opus-5
+    label: Claude Opus 5
+
+  - id: sonnet-5
+    provider: anthropic
+    model: claude-sonnet-5
+    label: Claude Sonnet 5
+
+  - id: haiku-4.5
+    provider: anthropic
+    model: claude-haiku-4-5
+    label: Claude Haiku 4.5
+    # Haiku 4.5 は adaptive thinking 非対応
+    thinking: none
+
+  # OpenAI（モデル名は利用時点のものに合わせて変更）
+  - id: gpt-5
+    provider: openai
+    model: gpt-5
+    label: GPT-5
+
+  # Gemini を OpenAI 互換エンドポイント経由で使う例
+  # - id: gemini-2.5-pro
+  #   provider: openai
+  #   model: gemini-2.5-pro
+  #   baseUrl: https://generativelanguage.googleapis.com/v1beta/openai/
+  #   apiKeyEnv: GEMINI_API_KEY
+
+  # ローカル LLM（Ollama）の例
+  # - id: local-llama
+  #   provider: openai
+  #   model: llama3.1
+  #   baseUrl: http://localhost:11434/v1
+  #   apiKeyEnv: OLLAMA_API_KEY   # 任意の値でよい
+
+  # API なしで動くモック（デモ・テスト用）
+  - id: mock-plain
+    provider: mock
+    model: mock
+    mockStyle: plain
+    label: モック（読みやすい文体）
+
+  - id: mock-verbose
+    provider: mock
+    model: mock
+    mockStyle: verbose
+    label: モック（冗長な文体）
+
+# LLM 判定（rubric / pairwise）に使うモデル。--judge で上書きできる
+judge:
+  model: opus-5

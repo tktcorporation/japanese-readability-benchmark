@@ -1,0 +1,476 @@
+#!/usr/bin/env -S node --import tsx
+import { existsSync } from "node:fs";
+import { Command } from "commander";
+import { assertRewriteModels, loadAllSources, loadCorpus, loadInterventions, loadModels, loadTasks, parseList, parseSchemes, pick } from "./config.ts";
+import { summarizeVotes } from "./human/aggregate.ts";
+import { buildHumanPairs, isCurrentPair } from "./human/pairs.ts";
+import { createHumanEvalServer } from "./human/server.ts";
+import { buildPairs, contextHashOf, judgeConfigHashOf, judgePairwise, judgeRubric, type SourceInfo } from "./judge/index.ts";
+import { scoreSample, scoringHashOf } from "./metrics/index.ts";
+import { PAIRWISE_PROMPT_VERSION, RUBRIC_PROMPT_VERSION } from "./judge/prompts.ts";
+import { extraSamples, planJobs } from "./pipeline/plan.ts";
+import { cellKey, corpusSource, provenanceHash, reuseLevels, runCell, sampleId, taskSource, type Source } from "./pipeline/run.ts";
+import { createProvider } from "./providers/index.ts";
+import { aggregate } from "./report/aggregate.ts";
+import { renderMarkdown } from "./report/markdown.ts";
+import { loadJudgments, loadSamples as loadSamplesFile, loadScores, persistedSampleIds } from "./store.ts";
+import type { HumanPair, HumanVote, ModelDef, PairwiseJudgment, RubricJudgment, Sample } from "./types.ts";
+import { mapLimit } from "./util/async.ts";
+import { loadDotenv } from "./util/env.ts";
+import { assertRunId } from "./util/run-id.ts";
+import { appendJsonl, ensureDir, readJson, readJsonl, repoPath, writeJson, writeText } from "./util/fs.ts";
+
+// .env があれば読む（すでに設定済みの環境変数は上書きしない）
+loadDotenv(repoPath(".env"));
+
+const program = new Command();
+program.name("bench").description("LLM が出力する日本語の読みやすさを評価するベンチマーク");
+
+
+function runDir(runId: string): string {
+  return repoPath("results", "runs", assertRunId(runId));
+}
+
+function files(runId: string) {
+  const dir = runDir(runId);
+  return {
+    dir,
+    samples: `${dir}/samples.jsonl`,
+    scores: `${dir}/scores.jsonl`,
+    judgments: `${dir}/judgments.jsonl`,
+    pairs: `${dir}/pairs.json`,
+    votes: `${dir}/votes.jsonl`,
+    reportMd: `${dir}/report.md`,
+    reportJson: `${dir}/report.json`,
+    humanSummary: `${dir}/human-summary.json`,
+  };
+}
+
+/**
+ * 現在の定義から、すべてのセル（source × model × intervention、モデルなしの "none" も含む）の
+ * 生成来歴ハッシュを計算する。サンプルの鮮度判定に使う
+ */
+function provenanceHashes(): Map<string, string> {
+  const { tasks, corpus } = loadAllSources();
+  const { models } = loadModels();
+  const interventions = loadInterventions();
+  const sources: Source[] = [...tasks.map(taskSource), ...corpus.map(corpusSource)];
+  const map = new Map<string, string>();
+  for (const source of sources) {
+    for (const intervention of interventions) {
+      for (const model of [undefined, ...models]) {
+        map.set(cellKey(source.id, model?.id ?? "none", intervention.id), provenanceHash(source, model, intervention, models));
+      }
+    }
+  }
+  return map;
+}
+
+/**
+ * サンプルを読む。入力・モデル設定・介入定義のどれかが編集・削除されていれば、そのサンプルは陳腐化として除外される。
+ * run 以外のコマンドでは、samples.jsonl が無い（run id の綴り間違いなど）場合は空の結果を書き出さずにエラーにする
+ */
+function loadSamples(runId: string, opts: { mustExist?: boolean } = {}): Sample[] {
+  const path = files(runId).samples;
+  if (opts.mustExist !== false && !existsSync(path)) {
+    throw new Error(`run "${runId}" のサンプルがありません（${path}）。先に \`bench run --run ${runId}\` を実行してください`);
+  }
+  return loadSamplesFile(path, { provenanceHashes: provenanceHashes() });
+}
+
+/** --baseline が現在の介入定義に存在することを確かめる（綴り間違いで空の結果を書き出さないように） */
+function assertBaseline(id: string): string {
+  return pick(loadInterventions(), [id], "基準の介入")[0]!.id;
+}
+
+function parsePositiveInt(name: string, value: string): number {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n <= 0) throw new Error(`${name} は 1 以上の整数で指定してください: "${value}"`);
+  return n;
+}
+
+function parseNonNegativeInt(name: string, value: string): number {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 0) throw new Error(`${name} は 0 以上の整数で指定してください: "${value}"`);
+  return n;
+}
+
+/** 採点・判定を読む。本文が変わったサンプルの記録や、課題名・想定読者・判定モデルの設定が変わった判定は除外される */
+function loadDerived(runId: string, samples: Sample[]) {
+  const f = files(runId);
+  const contextHashes = new Map(Array.from(sourceInfos().values()).map((s) => [s.id, contextHashOf(s)]));
+  const judgeConfigHashes = new Map(loadModels().models.map((m) => [m.id, judgeConfigHashOf(m)]));
+  return {
+    scores: loadScores(f.scores, samples, { scoringHash: scoringHashOf() }),
+    judgments: loadJudgments(f.judgments, samples, { contextHashes, judgeConfigHashes }),
+  };
+}
+
+function sourceInfos(): Map<string, SourceInfo> {
+  const { tasks, corpus } = loadAllSources();
+  const map = new Map<string, SourceInfo>();
+  for (const t of tasks) map.set(t.id, { id: t.id, title: t.title, audience: t.audience });
+  for (const c of corpus) map.set(c.id, { id: c.id, title: c.title, audience: c.audience });
+  return map;
+}
+
+function log(msg: string): void {
+  process.stderr.write(`${msg}\n`);
+}
+
+// ---------------------------------------------------------------------------
+program
+  .command("list")
+  .description("タスク・コーパス・モデル・介入の一覧")
+  .action(() => {
+    const { models, judge } = loadModels();
+    const { tasks, corpus } = loadAllSources();
+    console.log("## tasks");
+    for (const t of tasks) console.log(`- ${t.id}  [${t.category}] ${t.title}`);
+    console.log("\n## corpus");
+    for (const c of corpus) console.log(`- ${c.id}  ${c.title} (${c.text.length}字)`);
+    console.log("\n## models");
+    for (const m of models) console.log(`- ${m.id}  ${m.provider}:${m.model}${m.label ? `  ${m.label}` : ""}`);
+    console.log(`\n## judge\n- ${judge.model}`);
+    console.log("\n## interventions");
+    for (const i of assertRewriteModels(loadInterventions(), models)) console.log(`- ${i.id}  ${i.name}  [${i.steps.map((s) => s.type).join(" → ")}]`);
+  });
+
+// ---------------------------------------------------------------------------
+program
+  .command("run")
+  .description("タスク × モデル × 介入 で文章を生成する（コーパス起点は --corpus）")
+  .requiredOption("--run <id>", "run の名前（results/runs/<id>/ に保存）")
+  .option("--tasks <ids>", "タスク id（カンマ区切り。既定: 全部）")
+  .option("--corpus [ids]", "コーパス起点で実行（id を省略すると全部）")
+  .option("--models <ids>", "モデル id（カンマ区切り。既定: 全部）")
+  .option("--interventions <ids>", "介入 id（カンマ区切り。既定: 全部）")
+  .option("--samples <n>", "1 セルあたりのサンプル数", "1")
+  .option("--concurrency <n>", "同時実行数", "4")
+  .option("--force", "既存のサンプルも作り直す", false)
+  .action(async (o: { run: string; tasks?: string; corpus?: string | boolean; models?: string; interventions?: string; samples: string; concurrency: string; force: boolean }) => {
+    const { models: allModels } = loadModels();
+    const models = pick(allModels, parseList(o.models), "モデル");
+    const allInterventions = assertRewriteModels(loadInterventions(), allModels);
+    const interventions = pick(allInterventions, parseList(o.interventions), "介入");
+    const perCell = parsePositiveInt("--samples", o.samples);
+    const concurrency = parsePositiveInt("--concurrency", o.concurrency);
+    const f = files(o.run);
+    ensureDir(f.dir);
+    // 既存サンプル。reuse ステップの参照先にもなる（--force のときも参照先として残し、再生成されたら置き換わる）
+    const freshSamples = loadSamples(o.run, { mustExist: false });
+    const store = new Map<string, Sample>(freshSamples.filter((s) => !s.error).map((s) => [s.id, s]));
+    const lookup = (sourceId: string, modelId: string, interventionId: string, index: number) =>
+      store.get(sampleId(sourceId, modelId, interventionId, index));
+
+    const all = loadAllSources();
+    let sources: Source[];
+    if (o.corpus !== undefined && o.corpus !== false) {
+      const ids = typeof o.corpus === "string" ? parseList(o.corpus) : undefined;
+      sources = pick(all.corpus, ids, "コーパス").map(corpusSource);
+    } else {
+      sources = pick(all.tasks, parseList(o.tasks), "タスク").map(taskSource);
+    }
+
+    // 一度でも記録した id（鮮度・成否を問わない）。--force の巻き添え判定と --samples の縮小検知に使う
+    const persisted = persistedSampleIds(f.samples);
+    const { jobs, cells, skipped } = planJobs({
+      sources,
+      models,
+      interventions,
+      allInterventions,
+      perCell,
+      force: o.force,
+      fresh: new Set(store.keys()),
+      persisted,
+    });
+    // サンプルは index ごとに残るので、既存の run で --samples を減らすと余った index が集計に混ざる
+    // 鮮度で捨てられている index も、設定を戻せば復活するので、記録されたことのある id すべてで検知する
+    const extra = extraSamples(cells, perCell, persisted);
+    if (extra.length) {
+      throw new Error(
+        `run "${o.run}" には --samples ${perCell} を超える index のサンプルが ${extra.length} 件あります（例: ${extra[0]}）。` +
+          "既存の run では --samples を減らせません。同じ値以上を指定するか、別の run id を使ってください",
+      );
+    }
+    log(`${jobs.length} セルを実行します（スキップ ${skipped}）`);
+    let done = 0;
+    let errors = 0;
+    // 他の介入の出力を再利用する介入は、参照先の段階がすべて終わってから実行する
+    const involved = Array.from(new Set(jobs.map((j) => j.intervention)));
+    for (const level of reuseLevels(involved)) {
+      const ids = new Set(level.map((i) => i.id));
+      const phase = jobs.filter((j) => ids.has(j.intervention.id));
+      await mapLimit(phase, concurrency, async (job) => {
+        const sample = await runCell(job.source, job.model, job.intervention, job.index, { runId: o.run, allModels, lookup });
+        appendJsonl(f.samples, sample);
+        // 失敗したら古い成功サンプルも参照先から外す（依存側が古い本文で成功扱いにならないように）
+        if (sample.error) store.delete(sample.id);
+        else store.set(sample.id, sample);
+        done += 1;
+        if (sample.error) {
+          errors += 1;
+          log(`  [${done}/${jobs.length}] ERROR ${sample.id}: ${sample.error}`);
+        } else {
+          log(`  [${done}/${jobs.length}] ${sample.id} (${sample.text.length}字)`);
+        }
+      });
+    }
+    log(`完了: ${done} 件（エラー ${errors}）→ ${f.samples}`);
+  });
+
+// ---------------------------------------------------------------------------
+program
+  .command("score")
+  .description("自動指標（textlint・表層統計・jReadability）を計算する")
+  .requiredOption("--run <id>")
+  .option("--concurrency <n>", "同時実行数", "4")
+  .option("--force", "計算済みも再計算", false)
+  .action(async (o: { run: string; concurrency: string; force: boolean }) => {
+    const f = files(o.run);
+    const all = loadSamples(o.run);
+    const samples = all.filter((s) => !s.error && s.text.length > 0);
+    // 本文が変わったサンプルの古い採点は loadScores が除外するので、自動的に再採点される
+    const done = new Set(o.force ? [] : loadDerived(o.run, all).scores.map((s) => s.sampleId));
+    const todo = samples.filter((s) => !done.has(s.id));
+    log(`${todo.length} 件を採点します（スキップ ${done.size}）`);
+    await mapLimit(todo, parsePositiveInt("--concurrency", o.concurrency), async (s) => {
+      const rec = await scoreSample(s);
+      appendJsonl(f.scores, rec);
+      log(`  ${s.id}: textlint ${rec.metrics.textlintCount} 件, 平均文長 ${rec.metrics.meanSentenceLength?.toFixed(1)}`);
+    });
+    log(`→ ${f.scores}`);
+  });
+
+// ---------------------------------------------------------------------------
+program
+  .command("judge")
+  .description("LLM による採点（rubric）と比較（pairwise）")
+  .requiredOption("--run <id>")
+  .option("--mode <mode>", "rubric | pairwise | both", "both")
+  .option("--schemes <list>", "pairwise の比較軸: interventions,models", "interventions,models")
+  .option("--judge <modelId>", "判定モデル id（既定: config/models.yaml の judge）")
+  .option("--baseline <id>", "基準となる介入 id", "baseline")
+  .option("--limit <n>", "判定する最大件数（コスト確認用）")
+  .option("--concurrency <n>", "同時実行数", "3")
+  .option("--no-cache", "判定キャッシュを使わない")
+  .action(async (o: { run: string; mode: string; schemes: string; judge?: string; baseline: string; limit?: string; concurrency: string; cache: boolean }) => {
+    if (!["rubric", "pairwise", "both"].includes(o.mode)) {
+      throw new Error(`--mode "${o.mode}" は不正です。候補: rubric, pairwise, both`);
+    }
+    parseSchemes(o.schemes); // 早めに検証する
+    const limit = o.limit === undefined ? Infinity : parseNonNegativeInt("--limit", o.limit);
+    const concurrency = parsePositiveInt("--concurrency", o.concurrency);
+    const f = files(o.run);
+    const baselineId = assertBaseline(o.baseline);
+    const cfg = loadModels();
+    const judgeModel = pick(cfg.models, [o.judge ?? cfg.judge.model], "モデル")[0]!;
+    // 判定は 1 つのモデルの判断として記録・集計するので、refusal 時に別モデルへ切り替わる設定は使えない
+    if (judgeModel.fallbacks) {
+      throw new Error(`判定モデル "${judgeModel.id}" は fallbacks が有効です。判定に使うモデルは fallbacks: false（省略）にしてください`);
+    }
+    const provider = createProvider(judgeModel);
+    const cacheDir = o.cache ? repoPath("results", "cache", "judge") : undefined;
+    if (cacheDir) ensureDir(cacheDir);
+    const sources = sourceInfos();
+    const all = loadSamples(o.run);
+    const samples = all.filter((s) => !s.error && s.text.length > 0);
+    // 本文が変わったサンプルの古い判定は除外済み。プロンプトの版が変わった判定も未完了として扱う
+    const existing = loadDerived(o.run, all).judgments;
+    let budget = limit;
+
+    if (o.mode === "rubric" || o.mode === "both") {
+      const done = new Set(
+        existing
+          .filter(
+            (j): j is RubricJudgment => j.kind === "rubric" && j.judgeModel === judgeModel.id && j.promptVersion === RUBRIC_PROMPT_VERSION,
+          )
+          .map((j) => j.sampleId),
+      );
+      const todo = samples.filter((s) => !done.has(s.id)).slice(0, budget);
+      budget -= todo.length;
+      log(`rubric: ${todo.length} 件（判定モデル ${judgeModel.id}）`);
+      await mapLimit(todo, concurrency, async (s) => {
+        const src = sources.get(s.sourceId) ?? { id: s.sourceId, title: s.sourceId };
+        try {
+          const j = await judgeRubric(s, src, { provider, cacheDir });
+          appendJsonl(f.judgments, j);
+          log(`  ${s.id}: overall ${j.scores.overall}`);
+        } catch (err) {
+          log(`  ERROR ${s.id}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      });
+    }
+    if (o.mode === "pairwise" || o.mode === "both") {
+      const schemes = parseSchemes(o.schemes);
+      const done = new Set(
+        existing
+          .filter(
+            (j): j is PairwiseJudgment =>
+              j.kind === "pairwise" && j.judgeModel === judgeModel.id && j.promptVersion === PAIRWISE_PROMPT_VERSION,
+          )
+          .map((j) => `${j.scheme}|${j.aSampleId}|${j.bSampleId}`),
+      );
+      const pairs = schemes.flatMap((scheme) => buildPairs(samples, scheme, baselineId)).filter((p) => !done.has(`${p.scheme}|${p.a.id}|${p.b.id}`)).slice(0, Math.max(0, budget));
+      log(`pairwise: ${pairs.length} ペア × 2 回（提示順入れ替え）`);
+      await mapLimit(pairs, concurrency, async (p) => {
+        const src = sources.get(p.sourceId) ?? { id: p.sourceId, title: p.sourceId };
+        try {
+          const j = await judgePairwise(p.a, p.b, src, p.scheme, { provider, cacheDir });
+          appendJsonl(f.judgments, j);
+          log(`  ${p.a.id} vs ${p.b.id}: ${j.verdict}`);
+        } catch (err) {
+          log(`  ERROR ${p.a.id} vs ${p.b.id}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      });
+    }
+    log(`→ ${f.judgments}`);
+  });
+
+// ---------------------------------------------------------------------------
+program
+  .command("report")
+  .description("集計して report.md / report.json を書き出す")
+  .requiredOption("--run <id>")
+  .option("--baseline <id>", "基準となる介入 id", "baseline")
+  .option("--judge <modelId>", "集計に使う判定モデル id（複数の判定モデルで judge したとき）")
+  .action((o: { run: string; baseline: string; judge?: string }) => {
+    const f = files(o.run);
+    const baselineId = assertBaseline(o.baseline);
+    const samples = loadSamples(o.run);
+    const { scores, judgments } = loadDerived(o.run, samples);
+    const humanVotes = readJsonl<HumanVote>(f.votes);
+    const humanPairs = existsSync(f.pairs) ? readJson<HumanPair[]>(f.pairs) : undefined;
+    const report = aggregate({ runId: o.run, samples, scores, judgments, humanVotes, humanPairs, baselineId, judgeModel: o.judge, sources: sourceInfos() });
+    if (report.judgeModels.length > 1 && !o.judge) {
+      log(`注意: 判定モデルが複数あります（${report.judgeModels.join(", ")}）。${report.judgeModel} で集計しました。--judge で切り替えられます`);
+    }
+    writeJson(f.reportJson, report);
+    const md = renderMarkdown(report);
+    writeText(f.reportMd, md);
+    console.log(md);
+    log(`→ ${f.reportMd}`);
+  });
+
+// ---------------------------------------------------------------------------
+program
+  .command("pairs")
+  .description("人手評価用のペア（pairs.json）を作る")
+  .requiredOption("--run <id>")
+  .option("--schemes <list>", "interventions,models", "interventions,models")
+  .option("--baseline <id>", "基準となる介入 id", "baseline")
+  .option("--max <n>", "最大ペア数")
+  .option("--seed <n>", "シャッフルのシード", "42")
+  .action((o: { run: string; schemes: string; baseline: string; max?: string; seed: string }) => {
+    const f = files(o.run);
+    const baselineId = assertBaseline(o.baseline);
+    const samples = loadSamples(o.run);
+    const pairs = buildHumanPairs(samples, {
+      schemes: parseSchemes(o.schemes),
+      baselineId,
+      sources: sourceInfos(),
+      max: o.max === undefined ? undefined : parsePositiveInt("--max", o.max),
+      seed: parseNonNegativeInt("--seed", o.seed),
+    });
+    writeJson(f.pairs, pairs);
+    log(`${pairs.length} ペア → ${f.pairs}`);
+  });
+
+// ---------------------------------------------------------------------------
+program
+  .command("serve")
+  .description("人手評価の Web 画面を起動する（投票は votes.jsonl に追記）")
+  .requiredOption("--run <id>")
+  .option("--port <n>", "ポート", "3000")
+  .option("--per-rater <n>", "1 人あたりの最大ペア数")
+  .action((o: { run: string; port: string; perRater?: string }) => {
+    const f = files(o.run);
+    if (!existsSync(f.pairs)) {
+      log(`pairs.json がありません。先に \`bench pairs --run ${o.run}\` を実行してください`);
+      process.exitCode = 1;
+      return;
+    }
+    const port = parsePositiveInt("--port", o.port);
+    // 作り直し後の古いペアや古い文脈のペアは配信しない（投票しても report / human-report で捨てられるため）
+    const sampleById = new Map(loadSamples(o.run).map((s) => [s.id, s]));
+    const sources = sourceInfos();
+    const allPairs = readJson<HumanPair[]>(f.pairs);
+    const pairs = allPairs.filter((p) => isCurrentPair(p, sampleById, sources));
+    if (pairs.length < allPairs.length) log(`注意: ${allPairs.length - pairs.length} ペアは現在のサンプル・定義と一致しないため配信しません（\`bench pairs --run ${o.run}\` で作り直せます）`);
+    if (pairs.length === 0) throw new Error(`配信できるペアがありません。\`bench pairs --run ${o.run}\` で作り直してください`);
+    const server = createHumanEvalServer({
+      pairsFile: f.pairs,
+      pairs,
+      votesFile: f.votes,
+      port,
+      perRater: o.perRater === undefined ? undefined : parsePositiveInt("--per-rater", o.perRater),
+    });
+    server.listen(port, () => log(`http://localhost:${port}/  （Ctrl+C で終了）`));
+  });
+
+// ---------------------------------------------------------------------------
+program
+  .command("human-report")
+  .description("人手投票を集計する（詳細は report にも反映される）")
+  .requiredOption("--run <id>")
+  .action((o: { run: string }) => {
+    const f = files(o.run);
+    if (!existsSync(f.pairs)) throw new Error(`run "${o.run}" に pairs.json がありません。先に \`bench pairs --run ${o.run}\` を実行してください`);
+    // report と同じ基準で、現在のサンプル・定義と一致するペアだけを集計する（作り直し後の古いペアや古い文脈の投票を混ぜない）
+    const sampleById = new Map(loadSamples(o.run).map((s) => [s.id, s]));
+    const sources = sourceInfos();
+    const allPairs = readJson<HumanPair[]>(f.pairs);
+    const pairs = allPairs.filter((p) => isCurrentPair(p, sampleById, sources));
+    if (pairs.length < allPairs.length) log(`注意: ${allPairs.length - pairs.length} ペアは現在のサンプル・定義と一致しないため除外しました（\`bench pairs\` で作り直せます）`);
+    const votes = readJsonl<HumanVote>(f.votes);
+    const summary = summarizeVotes(pairs, votes);
+    writeJson(f.humanSummary, summary);
+    console.log(`ペア ${summary.pairs} / 投票 ${summary.votes} / 評価者 ${summary.raters}`);
+    if (summary.interRaterAgreement) {
+      const a = summary.interRaterAgreement;
+      console.log(`評価者間一致: ${a.agree}/${a.pairs} (${(a.rate * 100).toFixed(0)}%)`);
+    }
+    if (summary.medianSeconds !== undefined) console.log(`回答時間の中央値: ${summary.medianSeconds}s`);
+    log(`→ ${f.humanSummary}`);
+  });
+
+// ---------------------------------------------------------------------------
+program
+  .command("show")
+  .description("サンプルの本文と指標を表示する")
+  .requiredOption("--run <id>")
+  .requiredOption("--sample <sampleId>")
+  .action((o: { run: string; sample: string }) => {
+    const all = loadSamples(o.run);
+    const s = all.find((x) => x.id === o.sample);
+    if (!s) {
+      log("サンプルが見つかりません");
+      process.exitCode = 1;
+      return;
+    }
+    const derived = loadDerived(o.run, all);
+    const score = derived.scores.find((x) => x.sampleId === s.id);
+    console.log(`# ${s.id}\n`);
+    if (s.inputText) console.log(`## 介入前\n\n${s.inputText}\n`);
+    console.log(`## 本文\n\n${s.text}\n`);
+    if (score) {
+      console.log("## 指標\n");
+      for (const [k, v] of Object.entries(score.metrics)) console.log(`- ${k}: ${Number.isInteger(v) ? v : v.toFixed(3)}`);
+      if (score.textlintMessages.length) {
+        console.log("\n## textlint\n");
+        for (const m of score.textlintMessages) console.log(`- L${m.line}:${m.column} ${m.ruleId}: ${m.message.split("\n")[0]}`);
+      }
+    }
+    const judgments = derived.judgments.filter((j) => j.kind === "rubric" && j.sampleId === s.id);
+    for (const j of judgments) {
+      if (j.kind !== "rubric") continue;
+      console.log(`\n## LLM 採点 (${j.judgeModel})\n`);
+      console.log(JSON.stringify(j.scores));
+      console.log(j.rationale);
+    }
+  });
+
+program.parseAsync(process.argv).catch((err: unknown) => {
+  log(err instanceof Error ? (err.stack ?? err.message) : String(err));
+  process.exitCode = 1;
+});

@@ -1,0 +1,11 @@
+id: rewrite-pass
+name: LLM による書き直しパス
+description: >-
+  baseline の出力（同じ課題・モデル・サンプル番号）を、prompts/rewrite.md の指示で同じモデルに書き直させる。
+  生成し直さないので、「書いてから推敲する」二段目の効果だけを測れる。
+  コーパス起点のときは原文をそのまま書き直す（--models で書き直しモデルを指定）。
+steps:
+  - type: generate
+    reuse: baseline
+  - type: rewrite
+    prompt: prompts/rewrite.md

@@ -1,0 +1,11 @@
+id: full-stack
+name: ルール指示 + 書き直し + textlint --fix
+description: >-
+  できる限りの介入を全部入れた構成。改善の上限の目安として使う。
+  コスト（生成 2 回分）も含めて他の介入と比べる。
+steps:
+  - type: generate
+    system: prompts/style-guide.md
+  - type: rewrite
+    prompt: prompts/rewrite.md
+  - type: textlint-fix

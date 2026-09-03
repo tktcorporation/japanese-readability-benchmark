@@ -1,0 +1,8 @@
+id: style-prompt
+name: 文章ルールをシステムプロンプトで指示
+description: >-
+  prompts/style-guide.md をシステムプロンプトとして渡す。
+  CLAUDE.md や rules ファイルに「日本語の書き方」を書いたときの効果に相当する。
+steps:
+  - type: generate
+    system: prompts/style-guide.md
